@@ -40,10 +40,10 @@ log_section() {
     echo -e "${BLUE}========================================${NC}\n" | tee -a "$LOG_FILE"
 }
 
-# Проверка привилегий
-if [[ $EUID -ne 0 ]]; then
-   log_error "Этот скрипт должен быть запущен с правами root"
-   exit 1
+# Проверка возможности использования sudo
+if ! sudo -n true 2>/dev/null; then
+   log_warn "Скрипт требует доступ к sudo. Введите пароль если требуется..."
+   sudo true || { log_error "Нет доступа к sudo"; exit 1; }
 fi
 
 # Загрузка конфигурации

@@ -16,10 +16,10 @@ NC='\033[0m'
 
 echo -e "${BLUE}===== ИСПРАВЛЕНИЕ apt-get upgrade =====${NC}\n"
 
-if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}✗ Этот скрипт должен быть запущен с правами root${NC}"
-   echo "Используйте: sudo $0"
-   exit 1
+# Проверка возможности использования sudo
+if ! sudo -n true 2>/dev/null; then
+   echo -e "${YELLOW}Требуется доступ к sudo. Введите пароль...${NC}"
+   sudo true || { echo -e "${RED}Нет доступа к sudo${NC}"; exit 1; }
 fi
 
 # 1. Проверить текущее состояние

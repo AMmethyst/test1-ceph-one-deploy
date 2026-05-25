@@ -23,8 +23,10 @@ log_warn() {
     echo "[WARN] $1" | tee -a "$LOG_FILE"
 }
 
-if [[ $EUID -ne 0 ]]; then
-   log_error "Этот скрипт должен быть запущен с правами root"
+# Проверка возможности использования sudo
+if ! sudo -n true 2>/dev/null; then
+   log_warn "Требуется доступ к sudo. Введите пароль..."
+   sudo true || { log_error "Нет доступа к sudo"; exit 1; }
 fi
 
 log_info "===== УСТАНОВКА Prometheus ====="

@@ -45,6 +45,7 @@ REQUIRED_FILES=(
     "ASTRA_LINUX_NOTES.md"
     "MISSING_PACKAGES.md"
     "POWER_MANAGEMENT_FIX.md"
+    "SUDO_SETUP.md"
 )
 
 echo "===== ПРОВЕРКА ОБЯЗАТЕЛЬНЫХ ФАЙЛОВ ====="
