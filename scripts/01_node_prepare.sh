@@ -19,6 +19,10 @@ log_error() {
     echo "[ERROR] $1" | tee -a "$LOG_FILE"
 }
 
+log_warn() {
+    echo "[WARN] $1" | tee -a "$LOG_FILE"
+}
+
 # Проверка привилегий
 if [[ $EUID -ne 0 ]]; then
    log_error "Этот скрипт должен быть запущен с правами root"
