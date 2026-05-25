@@ -1,0 +1,193 @@
+#!/bin/bash
+#############################################################################
+# Скрипт развёртывания кластера Ceph
+# Должен быть запущен на узле astra-monitor1 (admin node)
+# 
+# Использование: sudo ./02_ceph_deploy.sh [cluster_name]
+# Пример: sudo ./02_ceph_deploy.sh ceph
+#############################################################################
+
+set -e
+
+LOG_FILE="/var/log/ceph_deployment.log"
+
+log_info() {
+    echo "[INFO] $1" | tee -a "$LOG_FILE"
+}
+
+log_error() {
+    echo "[ERROR] $1" | tee -a "$LOG_FILE"
+    exit 1
+}
+
+log_warn() {
+    echo "[WARN] $1" | tee -a "$LOG_FILE"
+}
+
+if [[ $EUID -ne 0 ]]; then
+   log_error "Этот скрипт должен быть запущен с правами root"
+fi
+
+CLUSTER_NAME="${1:-ceph}"
+CLUSTER_DIR="/etc/ceph"
+FSID=$(uuidgen)
+
+log_info "===== РАЗВЁРТЫВАНИЕ КЛАСТЕРА CEPH ====="
+log_info "Имя кластера: $CLUSTER_NAME"
+log_info "FSID: $FSID"
+log_info "Директория конфигурации: $CLUSTER_DIR"
+
+# Создание конфигурационного файла Ceph
+log_info "Создание конфигурационного файла $CLUSTER_NAME.conf..."
+
+cat > "$CLUSTER_DIR/$CLUSTER_NAME.conf" <<EOF
+[global]
+fsid = $FSID
+mon_initial_members = astra-monitor1
+mon_host = 192.168.1.100
+auth_cluster_required = cephx
+auth_service_required = cephx
+auth_client_required = cephx
+
+# Public network for client communication
+public_network = 192.168.1.0/24
+
+# Cluster network for OSD-OSD communication (more secure, requires separate network)
+cluster_network = 192.168.2.0/24
+
+# Общие параметры производительности
+mon_max_pg_per_osd = 200
+osd_pool_default_size = 3
+osd_pool_default_min_size = 2
+osd_pool_default_pg_num = 128
+osd_pool_default_pgp_num = 128
+
+# Параметры для небольших кластеров (тестирование)
+mon_pg_warn_max_per_osd = 300
+mon_pg_warn_min_per_osd = 30
+
+# Управление памятью OSD
+osd_memory_target = 4294967296
+
+# Параметры журналирования
+osd_journal_size = 10240
+
+# Параметры восстановления
+osd_max_backfills = 1
+osd_recovery_max_active = 3
+osd_recovery_op_priority = 63
+
+# Blustore конфигурация (для новых OSD)
+osd_objectstore = bluestore
+
+# РВД параметры
+rbd_cache = true
+rbd_cache_size = 335544320
+
+# RGW параметры (для Object Storage)
+[client.rgw.a]
+rgw_frontends = beast port=7480
+
+# Параметры безопасности (уровень "Орёл")
+[osd]
+osd_crush_update_on_start = true
+osd_client_message_size_cap = 2147483648
+
+[mon]
+mon_allow_pool_delete = false
+mon_max_osd = 256
+
+EOF
+
+chmod 644 "$CLUSTER_DIR/$CLUSTER_NAME.conf"
+log_info "Конфигурационный файл создан"
+
+# Генерирование ключей
+log_info "Генирование ключей кластера..."
+mkdir -p "$CLUSTER_DIR"
+
+# Создание ключа для сервиса bootstrap
+ceph-authtool --create-keyring "$CLUSTER_DIR/$CLUSTER_NAME.client.admin.keyring" \
+    --gen-key -n client.admin --cap mon 'allow *' --cap osd 'allow *' --cap mds 'allow *' \
+    2>/dev/null || log_warn "Ключ admin может быть создан позже"
+
+# Инициализация Monitor
+log_info "Инициализация Ceph Monitor на $(hostname)..."
+
+MON_KEYRING="$CLUSTER_DIR/$CLUSTER_NAME.mon.keyring"
+ceph-authtool --create-keyring "$MON_KEYRING" --gen-key -n mon. --cap mon 'allow *' 2>/dev/null || true
+
+MON_MAP_FILE="$CLUSTER_DIR/$CLUSTER_NAME.monmap"
+if [[ ! -f "$MON_MAP_FILE" ]]; then
+    monmaptool --create --clobber \
+        --add astra-monitor1 192.168.1.100 \
+        --fsid "$FSID" \
+        "$MON_MAP_FILE"
+    log_info "Mon map создана"
+fi
+
+# Создание данных монитора
+MON_DATA_DIR="/var/lib/ceph/mon/$CLUSTER_NAME-astra-monitor1"
+if [[ ! -d "$MON_DATA_DIR" ]]; then
+    mkdir -p "$MON_DATA_DIR"
+    ceph-mon --mkfs -i astra-monitor1 --monmap "$MON_MAP_FILE" \
+        --keyring "$MON_KEYRING" --fsid "$FSID" 2>/dev/null || true
+    chown -R ceph:ceph "$MON_DATA_DIR"
+    log_info "Директория монитора инициализирована"
+fi
+
+# Включение сервиса Monitor
+log_info "Запуск Ceph Monitor..."
+systemctl enable ceph-mon@astra-monitor1
+systemctl restart ceph-mon@astra-monitor1
+sleep 2
+
+# Проверка статуса Monitor
+log_info "Проверка статуса Monitor..."
+max_attempts=10
+attempt=0
+until ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" &>/dev/null || [[ $attempt -ge $max_attempts ]]; do
+    log_info "Ожидание готовности Monitor... (попытка $((attempt+1))/$max_attempts)"
+    sleep 2
+    ((attempt++))
+done
+
+if ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" &>/dev/null; then
+    ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" | tee -a "$LOG_FILE"
+else
+    log_warn "Monitor ещё не полностью готов, продолжаем..."
+fi
+
+# Создание MGR (Manager)
+log_info "Инициализация Ceph Manager..."
+MGR_DATA_DIR="/var/lib/ceph/mgr/$CLUSTER_NAME-astra-monitor1"
+mkdir -p "$MGR_DATA_DIR"
+chown -R ceph:ceph "$MGR_DATA_DIR"
+
+# Генирирование ключа для Manager
+ceph auth get-or-create mgr.astra-monitor1 mon 'allow profile mgr' osd 'allow *' mds 'allow *' \
+    -o "$CLUSTER_DIR/mgr.astra-monitor1.keyring" 2>/dev/null || true
+
+# Запуск Manager
+systemctl enable ceph-mgr@astra-monitor1
+systemctl restart ceph-mgr@astra-monitor1
+sleep 2
+
+# Включение модулей Manager
+log_info "Включение модулей Manager..."
+ceph mgr module enable prometheus 2>/dev/null || true
+ceph mgr module enable dashboard 2>/dev/null || true
+
+# Добавление OSD узлов в конфигурацию
+log_info "Подготовка OSD узлов..."
+
+# Добавление узлов в Crush map для балансировки
+for node in astra-node1 astra-node2 astra-node3; do
+    log_info "Регистрация узла: $node"
+    # Это будет сделано при добавлении OSD
+done
+
+log_info "===== НАЧАЛЬНОЕ РАЗВЁРТЫВАНИЕ КЛАСТЕРА ЗАВЕРШЕНО ====="
+log_info "Далее нужно добавить OSD диски используя скрипт 03_osd_add.sh"
+log_info "Статус кластера: ceph -s"
+log_info "Все логи: $LOG_FILE"
