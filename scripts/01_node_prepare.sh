@@ -138,19 +138,18 @@ if command -v aa-enforce &> /dev/null; then
     log_info "AppArmor обнаружен, текущий режим: $(aa-status 2>/dev/null | grep 'mode:' | head -1)"
 fi
 
-# Отключение энергосбережения для стабильности (важно для серверов)
-log_info "Конфигурация управления питанием..."
-# cpupower (если доступна) или echo для отключения C-states
+# Опциональная конфигурация управления питанием для лучшей стабильности
+# (может быть недоступно на защищённых системах - пропускаем с warning)
+log_info "Попытка конфигурации управления питанием..."
 if command -v cpupower &> /dev/null; then
-    cpupower idle-set -D 0 2>/dev/null || true
+    if cpupower idle-set -D 0 2>/dev/null; then
+        log_info "Энергосбережение отключено через cpupower"
+    else
+        log_warn "Не удалось отключить энергосбережение (может быть ограничено на защищённых системах)"
+    fi
 else
-    # Попытка отключить энергосбережение (может быть недоступно на защищённых системах)
-    echo 1 > /sys/module/intel_idle/parameters/max_cstate 2>/dev/null || true
-    echo 0 > /sys/module/intel_idle/parameters/max_cstate 2>/dev/null || true
-    # Альтернатива - amd_idle (для AMD процессоров)
-    echo 0 > /sys/module/amd_idle/parameters/max_cstate 2>/dev/null || true
+    log_warn "cpupower недоступен - управление питанием пропускается (это нормально)"
 fi
-log_info "Конфигурация управления питанием завершена"
 
 # Включение IPv6 (если требуется)
 log_info "Проверка IPv6..."
