@@ -42,6 +42,8 @@ REQUIRED_FILES=(
     "QUICKSTART.md"
     "INDEX.md"
     "TROUBLESHOOTING.md"
+    "ASTRA_LINUX_NOTES.md"
+    "MISSING_PACKAGES.md"
 )
 
 echo "===== ПРОВЕРКА ОБЯЗАТЕЛЬНЫХ ФАЙЛОВ ====="

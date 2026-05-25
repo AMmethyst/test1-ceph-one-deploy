@@ -50,17 +50,15 @@ apt-get install -y \
     mysql-server \
     ruby \
     ruby-dev \
-    libmysql++-dev \
-    libcurl4-gnutls-dev \
-    libssl-dev \
-    libxml2-dev \
-    build-essential \
-    g++ \
-    libsqlite3-dev \
-    git \
-    wget \
+    openssh-server \
     curl \
-    openssh-server
+    wget || true
+
+# Установка опциональных зависимостей
+log_info "Установка дополнительных зависимостей..."
+for pkg in libmysql++-dev libcurl4-gnutls-dev libssl-dev libxml2-dev build-essential g++ libsqlite3-dev git; do
+    apt-get install -y "$pkg" 2>/dev/null || log_warn "Пакет $pkg недоступен, пропускаем"
+done
 
 # Создание пользователя oneadmin (если его нет)
 if ! id -u oneadmin &>/dev/null; then

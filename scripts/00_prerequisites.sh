@@ -58,7 +58,6 @@ apt-get install -y \
     vim \
     net-tools \
     htop \
-    iotop \
     sysstat \
     openssh-server \
     openssh-client \
@@ -70,7 +69,13 @@ apt-get install -y \
     xfsprogs \
     python3 \
     python3-pip \
-    jq
+    jq || true
+
+# Установка опциональных утилит (могут быть недоступны в некоторых репозиториях)
+log_info "Установка опциональных утилит для мониторинга..."
+for pkg in iotop-c iotop blktrace fio; do
+    apt-get install -y "$pkg" 2>/dev/null && { log_info "Пакет $pkg установлен"; break; } || true
+done
 
 # Конфигурация NTP/Chrony для синхронизации времени
 log_info "Конфигурация синхронизации времени (chrony)..."

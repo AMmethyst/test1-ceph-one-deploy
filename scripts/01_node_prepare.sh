@@ -77,11 +77,13 @@ fi
 
 # Установка утилит мониторинга
 log_info "Установка утилит мониторинга..."
-apt-get install -y \
-    sysstat \
-    iotop \
-    blktrace \
-    fio
+apt-get install -y sysstat || true
+
+# Установка опциональных утилит мониторинга
+log_info "Установка мониторинга I/O..."
+for pkg in iotop-c iotop blktrace fio; do
+    apt-get install -y "$pkg" 2>/dev/null && { log_info "Пакет $pkg установлен"; break; } || true
+done
 
 # Конфигурация логирования
 log_info "Конфигурация логирования..."

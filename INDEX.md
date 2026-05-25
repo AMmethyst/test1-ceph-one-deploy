@@ -53,6 +53,7 @@ test1-ceph-one-deploy/
 │   ├── README.md                  📖 Основная документация
 │   ├── QUICKSTART.md              🚀 Быстрый старт (30-60 мин)
 │   ├── ASTRA_LINUX_NOTES.md       🔒 Специфика Astra Linux "Орёл"
+│   ├── MISSING_PACKAGES.md        📦 Решение проблем с пакетами
 │   ├── TROUBLESHOOTING.md         🆘 Решение проблем
 │   └── ARCHITECTURE.md            (при наличии)
 │
@@ -223,6 +224,11 @@ sudo systemctl restart opennebula-sunstone
 - Брандмауэр UFW
 - Уровень защиты "Орёл"
 
+**Ошибки с пакетами смотрите в MISSING_PACKAGES.md:**
+- Ошибка `iotop не найден` (РЕШЕНО)
+- Ошибки с другими недоступными пакетами
+- Альтернативные способы мониторинга
+
 Быстрые решения:
 ```bash
 # 1. Запустите диагностику
@@ -244,6 +250,7 @@ sudo ./scripts/start_services.sh
 | **QUICKSTART.md** | Развёртывание за 30-60 минут |
 | **README.md** | Полная документация всех компонентов |
 | **ASTRA_LINUX_NOTES.md** | Специфика Astra Linux, уровень "Орёл", решение ошибок |
+| **MISSING_PACKAGES.md** | Решение ошибок при отсутствии пакетов в репозитории |
 | **TROUBLESHOOTING.md** | Диагностика и решение проблем |
 | **.deployment.conf** | Конфигурация развёртывания |
 | **deployment-lab.conf** | Конфиг для тестирования |
