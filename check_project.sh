@@ -46,6 +46,7 @@ REQUIRED_FILES=(
     "MISSING_PACKAGES.md"
     "POWER_MANAGEMENT_FIX.md"
     "SUDO_SETUP.md"
+    "SSH_NO_ROOT.md"
 )
 
 echo "===== ПРОВЕРКА ОБЯЗАТЕЛЬНЫХ ФАЙЛОВ ====="

@@ -62,6 +62,7 @@ else
     COMPUTE_NODES=("astra-node1" "astra-node2" "astra-node3")
     OSD_DEVICES=("/dev/sdb" "/dev/sdc" "/dev/sdd")
     DEB_PATH="./deb"
+    SSH_USER="$(whoami)"  # Используем текущего пользователя
     ENABLE_OPENNEBULA=true
     ENABLE_PROMETHEUS=true
     ENABLE_GRAFANA=true
@@ -115,9 +116,9 @@ deploy_nodes() {
     
     # Подготовка других узлов (если доступны через SSH)
     for node in "${COMPUTE_NODES[@]}"; do
-        if ssh -o ConnectTimeout=5 "$node" "echo 'OK'" &>/dev/null; then
+        if ssh -o ConnectTimeout=5 "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
             log_info "Подготовка удалённого узла: $node"
-            ssh "$node" "cd $SCRIPT_DIR && sudo bash 01_node_prepare.sh '$node'" || \
+            ssh "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 01_node_prepare.sh '$node'" || \
             log_warn "Не удалось подготовить узел: $node"
         else
             log_warn "Узел $node недоступен через SSH"
@@ -144,9 +145,9 @@ deploy_ceph() {
             node="${COMPUTE_NODES[$i]}"
             device="${OSD_DEVICES[$i]}"
             
-            if ssh -o ConnectTimeout=5 "$node" "echo 'OK'" &>/dev/null; then
+            if ssh -o ConnectTimeout=5 "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
                 log_info "Добавление OSD на узле $node ($device)..."
-                ssh "$node" "cd $SCRIPT_DIR && sudo bash 03_osd_add.sh '$device' '$CLUSTER_NAME'" || \
+                ssh "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 03_osd_add.sh '$device' '$CLUSTER_NAME'" || \
                 log_warn "Не удалось добавить OSD на $node"
             fi
         done
