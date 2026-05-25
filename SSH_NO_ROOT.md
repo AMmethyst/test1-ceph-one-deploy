@@ -16,18 +16,18 @@
 На каждом узле (astra-monitor1, astra-node1/2/3):
 
 ```bash
-# Создайте пользователя ceph-deploy
-sudo useradd -m -s /bin/bash ceph-deploy
+# Создайте пользователя (например: astraadm, ceph-deploy и т.д.)
+sudo useradd -m -s /bin/bash astraadm
 
 # Добавьте в группу sudo для доступа без пароля
-sudo usermod -aG sudo ceph-deploy
+sudo usermod -aG sudo astraadm
 
 # Отредактируйте sudoers
 sudo visudo
 
 # Найдите строку %sudo и убедитесь что там NOPASSWD
 # Или добавьте строку в конец файла:
-ceph-deploy ALL=(ALL) NOPASSWD: ALL
+astraadm ALL=(ALL) NOPASSWD: ALL
 ```
 
 ### Шаг 2: Настройте SSH ключи
@@ -38,13 +38,13 @@ ceph-deploy ALL=(ALL) NOPASSWD: ALL
 # Создайте SSH ключ если его нет
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
 
-# Скопируйте ключ на все узлы
+# Скопируйте ключ на все узлы (используйте нужного пользователя)
 for node in astra-monitor1 astra-node1 astra-node2 astra-node3; do
-    ssh-copy-id -i ~/.ssh/id_rsa.pub ceph-deploy@$node
+    ssh-copy-id -i ~/.ssh/id_rsa.pub astraadm@$node
 done
 
 # Проверьте что SSH работает без пароля
-ssh ceph-deploy@astra-monitor1 "echo OK"
+ssh astraadm@astra-monitor1 "echo OK"
 ```
 
 ### Шаг 3: Обновите конфигурацию развёртывания
@@ -53,7 +53,7 @@ ssh ceph-deploy@astra-monitor1 "echo OK"
 
 ```bash
 # SSH пользователь (должен быть создан на всех узлах)
-SSH_USER="ceph-deploy"
+SSH_USER="astraadm"
 
 # Узлы для подключения
 MONITOR_NODE="astra-monitor1"
@@ -78,13 +78,13 @@ sudo ./scripts/deploy.sh all .deployment.conf
 ### Проверить доступ к sudo без пароля на удалённом узле
 
 ```bash
-ssh ceph-deploy@astra-node1 "sudo -n true && echo 'sudo OK' || echo 'sudo password required'"
+ssh astraadm@astra-node1 "sudo -n true && echo 'sudo OK' || echo 'sudo password required'"
 ```
 
 ### Проверить SSH без пароля
 
 ```bash
-ssh ceph-deploy@astra-node1 "echo 'SSH OK'"
+ssh astraadm@astra-node1 "echo 'SSH OK'"
 ```
 
 Если запросит пароль - нужно переделать Step 2.
@@ -92,20 +92,20 @@ ssh ceph-deploy@astra-node1 "echo 'SSH OK'"
 ### Проверить что пользователь в группе sudo
 
 ```bash
-ssh ceph-deploy@astra-node1 "groups | grep sudo"
+ssh astraadm@astra-node1 "groups | grep sudo"
 ```
 
-Должен вывести что-то типа: `ceph-deploy sudo`
+Должен вывести что-то типа: `astraadm sudo`
 
 ## 📋 Альтернативные варианты
 
 ### Вариант 1: Использовать существующего пользователя
 
-Если у вас уже есть пользователь (например, `ubuntu`, `debian`):
+Если у вас уже есть пользователь (например, `astraadm`, `ubuntu`, `debian`):
 
 ```bash
 # В конфиге используйте:
-SSH_USER="ubuntu"
+SSH_USER="astraadm"
 
 # Убедитесь что пользователь в группе sudo и может выполнять sudo без пароля
 ```
@@ -135,18 +135,18 @@ sudo ./scripts/deploy.sh all .deployment.conf
 
 ### Минимальные привилегии (рекомендуется)
 
-Вместо `ceph-deploy ALL=(ALL) NOPASSWD: ALL` используйте более узкие разрешения:
+Вместо `astraadm ALL=(ALL) NOPASSWD: ALL` используйте более узкие разрешения:
 
 ```bash
 sudo visudo
 
 # Добавьте только необходимые команды:
-ceph-deploy ALL=(ALL) NOPASSWD: /usr/bin/bash
-ceph-deploy ALL=(ALL) NOPASSWD: /usr/bin/apt-get
-ceph-deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl
-ceph-deploy ALL=(ALL) NOPASSWD: /usr/sbin/useradd
-ceph-deploy ALL=(ALL) NOPASSWD: /bin/mkdir
-ceph-deploy ALL=(ALL) NOPASSWD: /bin/chmod
+astraadm ALL=(ALL) NOPASSWD: /usr/bin/bash
+astraadm ALL=(ALL) NOPASSWD: /usr/bin/apt-get
+astraadm ALL=(ALL) NOPASSWD: /usr/bin/systemctl
+astraadm ALL=(ALL) NOPASSWD: /usr/sbin/useradd
+astraadm ALL=(ALL) NOPASSWD: /bin/mkdir
+astraadm ALL=(ALL) NOPASSWD: /bin/chmod
 # И т.д. для всех команд которые использует скрипт
 ```
 
@@ -156,7 +156,7 @@ ceph-deploy ALL=(ALL) NOPASSWD: /bin/chmod
 
 ```bash
 # Посмотрите логи sudo
-sudo tail -f /var/log/auth.log | grep ceph-deploy
+sudo tail -f /var/log/auth.log | grep astraadm
 ```
 
 ## ⚠️ Решение проблем
@@ -182,3 +182,27 @@ sudo tail -f /var/log/auth.log | grep ceph-deploy
 ---
 
 **Готово!** Теперь ваши скрипты работают без root пользователя. 🚀🔐
+
+---
+
+## 💡 Быстрое изменение SSH пользователя
+
+Если вам нужно изменить пользователя для SSH подключений, отредактируйте конфиг:
+
+```bash
+# Отредактируйте конфиг (например .deployment.conf)
+nano .deployment.conf
+
+# Найдите строку:
+SSH_USER="astraadm"
+
+# Измените на нужного пользователя:
+SSH_USER="ubuntu"    # или другой пользователь
+
+# Сохраните (Ctrl+O, Enter, Ctrl+X)
+```
+
+Или используйте sed:
+```bash
+sed -i 's/SSH_USER=".*"/SSH_USER="ubuntu"/g' .deployment.conf
+```
