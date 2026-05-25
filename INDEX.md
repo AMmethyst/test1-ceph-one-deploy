@@ -52,6 +52,7 @@ test1-ceph-one-deploy/
 ├── 📚 ДОКУМЕНТАЦИЯ
 │   ├── README.md                  📖 Основная документация
 │   ├── QUICKSTART.md              🚀 Быстрый старт (30-60 мин)
+│   ├── ASTRA_LINUX_NOTES.md       🔒 Специфика Astra Linux "Орёл"
 │   ├── TROUBLESHOOTING.md         🆘 Решение проблем
 │   └── ARCHITECTURE.md            (при наличии)
 │
@@ -216,6 +217,12 @@ sudo systemctl restart opennebula-sunstone
 - Проблемы мониторинга
 - Экстренные ситуации
 
+**Специфика Astra Linux смотрите в ASTRA_LINUX_NOTES.md:**
+- Ошибка `apt-get upgrade отключена` (РЕШЕНО - это нормально!)
+- AppArmor конфигурация
+- Брандмауэр UFW
+- Уровень защиты "Орёл"
+
 Быстрые решения:
 ```bash
 # 1. Запустите диагностику
@@ -236,6 +243,7 @@ sudo ./scripts/start_services.sh
 |------|-----------|
 | **QUICKSTART.md** | Развёртывание за 30-60 минут |
 | **README.md** | Полная документация всех компонентов |
+| **ASTRA_LINUX_NOTES.md** | Специфика Astra Linux, уровень "Орёл", решение ошибок |
 | **TROUBLESHOOTING.md** | Диагностика и решение проблем |
 | **.deployment.conf** | Конфигурация развёртывания |
 | **deployment-lab.conf** | Конфиг для тестирования |
