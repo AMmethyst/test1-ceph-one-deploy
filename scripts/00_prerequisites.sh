@@ -100,7 +100,7 @@ net.ipv4.tcp_max_syn_backlog = 4096
 net.core.somaxconn = 4096
 net.ipv4.tcp_tw_reuse = 1
 EOF
-sysctl -p
+sysctl -p 2>/dev/null || log_warn "Некоторые параметры sysctl могут быть недоступны"
 
 # Конфигурация лимитов для Ceph
 log_info "Конфигурация пользовательских лимитов..."

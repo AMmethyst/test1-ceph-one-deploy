@@ -44,6 +44,7 @@ REQUIRED_FILES=(
     "TROUBLESHOOTING.md"
     "ASTRA_LINUX_NOTES.md"
     "MISSING_PACKAGES.md"
+    "POWER_MANAGEMENT_FIX.md"
 )
 
 echo "===== ПРОВЕРКА ОБЯЗАТЕЛЬНЫХ ФАЙЛОВ ====="

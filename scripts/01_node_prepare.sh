@@ -142,11 +142,15 @@ fi
 log_info "Конфигурация управления питанием..."
 # cpupower (если доступна) или echo для отключения C-states
 if command -v cpupower &> /dev/null; then
-    cpupower idle-set -D 0 || true
+    cpupower idle-set -D 0 2>/dev/null || true
 else
-    echo 1 > /sys/module/intel_idle/parameters/max_cstate || true
-    echo 0 > /sys/module/intel_idle/parameters/max_cstate || true
+    # Попытка отключить энергосбережение (может быть недоступно на защищённых системах)
+    echo 1 > /sys/module/intel_idle/parameters/max_cstate 2>/dev/null || true
+    echo 0 > /sys/module/intel_idle/parameters/max_cstate 2>/dev/null || true
+    # Альтернатива - amd_idle (для AMD процессоров)
+    echo 0 > /sys/module/amd_idle/parameters/max_cstate 2>/dev/null || true
 fi
+log_info "Конфигурация управления питанием завершена"
 
 # Включение IPv6 (если требуется)
 log_info "Проверка IPv6..."
