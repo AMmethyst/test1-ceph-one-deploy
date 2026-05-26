@@ -93,7 +93,7 @@ done
 log_info "Конфигурация логирования..."
 mkdir -p /var/log/ceph
 touch /var/log/ceph/ceph.log
-chown -R ceph:ceph /var/log/ceph
+chown -R astraadm:astraadm /var/log/ceph
 
 # Установка Node Exporter для Prometheus
 log_info "Установка Node Exporter..."

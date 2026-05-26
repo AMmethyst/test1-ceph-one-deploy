@@ -134,7 +134,7 @@ if [[ ! -d "$MON_DATA_DIR" ]]; then
     mkdir -p "$MON_DATA_DIR"
     ceph-mon --mkfs -i astra-monitor1 --monmap "$MON_MAP_FILE" \
         --keyring "$MON_KEYRING" --fsid "$FSID" 2>/dev/null || true
-    chown -R ceph:ceph "$MON_DATA_DIR"
+    chown -R astraadm:astraadm "$MON_DATA_DIR"
     log_info "Директория монитора инициализирована"
 fi
 
@@ -164,7 +164,7 @@ fi
 log_info "Инициализация Ceph Manager..."
 MGR_DATA_DIR="/var/lib/ceph/mgr/$CLUSTER_NAME-astra-monitor1"
 mkdir -p "$MGR_DATA_DIR"
-chown -R ceph:ceph "$MGR_DATA_DIR"
+chown -R astraadm:astraadm "$MGR_DATA_DIR"
 
 # Генирирование ключа для Manager
 ceph auth get-or-create mgr.astra-monitor1 mon 'allow profile mgr' osd 'allow *' mds 'allow *' \

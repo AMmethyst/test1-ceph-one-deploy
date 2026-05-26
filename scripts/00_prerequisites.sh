@@ -167,7 +167,7 @@ mkdir -p /var/lib/ceph/osd
 mkdir -p /var/lib/ceph/mds
 mkdir -p /var/lib/ceph/mgr
 mkdir -p /var/lib/ceph/tmp
-chown -R ceph:ceph /var/lib/ceph
+chown -R astraadm:astraadm /var/lib/ceph
 chmod -R 755 /var/lib/ceph
 
 # Установка Python пакетов для мониторинга
