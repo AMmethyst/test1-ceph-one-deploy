@@ -391,6 +391,55 @@ fi
 
 # Включение сервиса Monitor
 log_info "Запуск Ceph Monitor через systemd..."
+
+# Диагностика systemd unit файла
+log_info "Поиск systemd unit файла для ceph-mon..."
+if [[ -f "/usr/lib/systemd/system/ceph-mon@.service" ]]; then
+    UNIT_FILE="/usr/lib/systemd/system/ceph-mon@.service"
+    log_info "Unit файл: $UNIT_FILE"
+    log_info "Содержимое unit файла:"
+    cat "$UNIT_FILE" | tee -a "$LOG_FILE"
+    
+    # Проверка пользователя в unit файле
+    UNIT_USER=$(grep "^User=" "$UNIT_FILE" | head -1 | cut -d= -f2)
+    if [[ -z "$UNIT_USER" ]]; then
+        log_warn "User не указан в unit файле, используется default (root)"
+        UNIT_USER="root"
+    fi
+    log_info "Unit файл настроен на запуск от пользователя: $UNIT_USER"
+    
+    # Проверка существует ли пользователь
+    if ! id "$UNIT_USER" &>/dev/null && [[ "$UNIT_USER" != "root" ]]; then
+        log_error "✗ КРИТИЧЕСКАЯ ОШИБКА: Пользователь $UNIT_USER НЕ существует!"
+        log_error "Требуется исправить unit файл или создать пользователя"
+        
+        # Попытка исправления - переписать unit файл
+        log_info "Попытка автоматического исправления unit файла..."
+        
+        # Создание временной копии
+        cp "$UNIT_FILE" "$UNIT_FILE.backup"
+        log_info "Резервная копия сохранена: $UNIT_FILE.backup"
+        
+        # Замена пользователя на astraadm
+        sed -i "s/^User=.*/User=$CEPH_USER/" "$UNIT_FILE"
+        sed -i "s/^Group=.*/Group=$CEPH_USER/" "$UNIT_FILE"
+        
+        log_info "Unit файл обновлён с пользователем: $CEPH_USER"
+        log_info "Новое содержимое:"
+        cat "$UNIT_FILE" | tee -a "$LOG_FILE"
+    else
+        log_info "✓ Пользователь $UNIT_USER существует"
+    fi
+else
+    log_warn "Unit файл не найден в /usr/lib/systemd/system/"
+    log_info "Поиск в /etc/systemd/system/..."
+    if [[ -f "/etc/systemd/system/ceph-mon@.service" ]]; then
+        UNIT_FILE="/etc/systemd/system/ceph-mon@.service"
+        log_info "Unit файл: $UNIT_FILE"
+        cat "$UNIT_FILE" | tee -a "$LOG_FILE"
+    fi
+fi
+
 systemctl daemon-reload
 if ! systemctl enable "ceph-mon@$MONITOR_NODE"; then
     log_warn "Не удалось включить ceph-mon@$MONITOR_NODE в автозагрузку"
@@ -427,8 +476,12 @@ else
     systemctl status "ceph-mon@$MONITOR_NODE" | tee -a "$LOG_FILE" || true
     
     log_error ""
-    log_error "Последние логи журнала (50 строк):"
-    journalctl -u "ceph-mon@$MONITOR_NODE" -n 50 --no-pager | tee -a "$LOG_FILE" || true
+    log_error "Последние логи журнала (100 строк):"
+    journalctl -u "ceph-mon@$MONITOR_NODE" -n 100 --no-pager | tee -a "$LOG_FILE" || true
+    
+    log_error ""
+    log_error "Проверка ошибок systemd:"
+    journalctl -u "ceph-mon@$MONITOR_NODE" -p err -n 20 --no-pager | tee -a "$LOG_FILE" || true
     
     log_error ""
     log_error "Процессы ceph:"
@@ -436,14 +489,31 @@ else
     
     log_error ""
     log_error "Содержимое директории монитора:"
-    ls -laR "$MON_DATA_DIR" | tee -a "$LOG_FILE" || true
+    ls -laR "$MON_DATA_DIR" 2>&1 | head -50 | tee -a "$LOG_FILE" || true
+    
+    log_error ""
+    log_error "Информация о unit файле:"
+    if [[ -f "/usr/lib/systemd/system/ceph-mon@.service" ]]; then
+        log_error "Unit: /usr/lib/systemd/system/ceph-mon@.service"
+        grep -E "^(User|Group|ExecStart)" "/usr/lib/systemd/system/ceph-mon@.service" | tee -a "$LOG_FILE" || true
+    elif [[ -f "/etc/systemd/system/ceph-mon@.service" ]]; then
+        log_error "Unit: /etc/systemd/system/ceph-mon@.service"
+        grep -E "^(User|Group|ExecStart)" "/etc/systemd/system/ceph-mon@.service" | tee -a "$LOG_FILE" || true
+    fi
     
     log_error ""
     log_error "РЕКОМЕНДУЕМЫЕ ДЕЙСТВИЯ:"
-    log_error "1. Проверьте логи: journalctl -u ceph-mon@$MONITOR_NODE -f"
-    log_error "2. Попробуйте запустить вручную: /usr/bin/ceph-mon -i $MONITOR_NODE -c $CLUSTER_DIR/$CLUSTER_NAME.conf --debug-mon 10"
-    log_error "3. Проверьте права: ls -la $MON_DATA_DIR"
-    log_error "4. Проверьте порт 6789: netstat -tlnp | grep 6789"
+    log_error "1. Проверьте логи в реальном времени:"
+    log_error "   journalctl -u ceph-mon@$MONITOR_NODE -f"
+    log_error "2. Попробуйте запустить вручную:"
+    log_error "   /usr/bin/ceph-mon -i $MONITOR_NODE -c $CLUSTER_DIR/$CLUSTER_NAME.conf --debug-mon 10"
+    log_error "3. Проверьте права доступа:"
+    log_error "   ls -la $CLUSTER_DIR/"
+    log_error "   ls -la $MON_DATA_DIR/"
+    log_error "4. Проверьте пользователя в unit файле:"
+    log_error "   grep User= /usr/lib/systemd/system/ceph-mon@.service"
+    log_error "5. Если пользователь в unit файле не существует, отредактируйте его!"
+    log_error ""
     log_error "Исправьте проблему и повторите запуск скрипта"
     exit 1
 fi
