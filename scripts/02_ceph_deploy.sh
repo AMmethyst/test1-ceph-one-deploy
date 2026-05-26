@@ -261,27 +261,60 @@ head -30 "$CLUSTER_DIR/$CLUSTER_NAME.conf" | tee -a "$LOG_FILE" || log_error "О
 log_info "Проверка монmap:"
 monmaptool --print "$MON_MAP_FILE" 2>&1 | tee -a "$LOG_FILE" || log_error "Ошибка при чтении монmap"
 
-# Проверка прав доступа на критических директориях
+# Определение пользователя для Ceph
+# Обычно это ceph или astraadm
+CEPH_USER="ceph"
+if ! id "$CEPH_USER" &>/dev/null; then
+    log_warn "Пользователь $CEPH_USER не существует, попытка использовать astraadm"
+    CEPH_USER="astraadm"
+    if ! id "$CEPH_USER" &>/dev/null; then
+        log_error "Ни ceph, ни astraadm не найдены!"
+        exit 1
+    fi
+fi
+
+log_info "Использование пользователя для Ceph: $CEPH_USER"
+
+# Проверка конфигурации перед запуском Monitor
 log_info "Проверка конфигурации перед запуском Monitor..."
 
-# Проверка прав на файлах в /etc/ceph
-log_info "Статус файлов в $CLUSTER_DIR:"
+# Проверка прав на файлах в /etc/ceph ДО исправления
+log_info "Статус файлов в $CLUSTER_DIR (ДО исправления):"
 ls -la "$CLUSTER_DIR"/ 2>&1 | tee -a "$LOG_FILE" || true
 
-# Убеждаемся что конфиг доступен
+# Исправление владельца и прав для конфига
 if [[ -f "$CLUSTER_DIR/$CLUSTER_NAME.conf" ]]; then
+    chown root:root "$CLUSTER_DIR/$CLUSTER_NAME.conf"
     chmod 644 "$CLUSTER_DIR/$CLUSTER_NAME.conf"
-    log_info "Права на конфиге установлены: 644"
+    log_info "✓ Config: владелец=root:root, права=644"
 else
     log_error "Конфиг не найден: $CLUSTER_DIR/$CLUSTER_NAME.conf"
 fi
 
-# Убеждаемся что монmap доступен
+# Исправление владельца и прав для монmap
 if [[ -f "$MON_MAP_FILE" ]]; then
+    chown root:root "$MON_MAP_FILE"
     chmod 644 "$MON_MAP_FILE"
-    log_info "Права на монmap установлены: 644"
+    log_info "✓ Monmap: владелец=root:root, права=644"
 else
     log_error "Монmap не найден: $MON_MAP_FILE"
+fi
+
+# Исправление владельца и прав для keyring файлов - КРИТИЧНО!
+if [[ -f "$CLUSTER_DIR/$CLUSTER_NAME.client.admin.keyring" ]]; then
+    chown "$CEPH_USER:$CEPH_USER" "$CLUSTER_DIR/$CLUSTER_NAME.client.admin.keyring"
+    chmod 640 "$CLUSTER_DIR/$CLUSTER_NAME.client.admin.keyring"
+    log_info "✓ Admin keyring: владелец=$CEPH_USER:$CEPH_USER, права=640"
+else
+    log_warn "Admin keyring не найден: $CLUSTER_DIR/$CLUSTER_NAME.client.admin.keyring"
+fi
+
+if [[ -f "$MON_KEYRING" ]]; then
+    chown "$CEPH_USER:$CEPH_USER" "$MON_KEYRING"
+    chmod 640 "$MON_KEYRING"
+    log_info "✓ Mon keyring: владелец=$CEPH_USER:$CEPH_USER, права=640"
+else
+    log_warn "Mon keyring не найден: $MON_KEYRING"
 fi
 
 # Проверка прав на директориях
@@ -289,10 +322,17 @@ log_info "Проверка прав доступа..."
 log_info "Содержимое /var/lib/ceph:"
 find /var/lib/ceph -type f -o -type d | head -30 | tee -a "$LOG_FILE"
 
+# Исправление прав на директории монитора
 if [[ ! -w "$MON_DATA_DIR" ]]; then
     log_warn "Директория $MON_DATA_DIR недоступна для записи, исправляем..."
-    chmod -R 777 "$MON_DATA_DIR"
+    chown -R "$CEPH_USER:$CEPH_USER" "$MON_DATA_DIR"
+    chmod -R 755 "$MON_DATA_DIR"
+    log_info "✓ Права на директории установлены"
 fi
+
+# Проверка после исправления
+log_info "Статус файлов в $CLUSTER_DIR (ПОСЛЕ исправления):"
+ls -la "$CLUSTER_DIR"/ 2>&1 | tee -a "$LOG_FILE" || true
 
 if [[ ! -f "$CLUSTER_DIR/$CLUSTER_NAME.conf" ]]; then
     log_error "Конфиг файл не найден: $CLUSTER_DIR/$CLUSTER_NAME.conf"
