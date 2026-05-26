@@ -567,52 +567,88 @@ fi
 # Проверка статуса Monitor
 log_info "Проверка статуса Monitor..."
 log_info "Ожидание инициализации Monitor (до 60 сек)..."
+# Проверка статуса Monitor и ожидание его инициализации
+log_info "Проверка статуса сервиса Monitor..."
+if ! systemctl is-active --quiet "ceph-mon@$MONITOR_NODE"; then
+    log_warn "Сервис ceph-mon@$MONITOR_NODE НЕ активен, пытаемся его запустить..."
+    systemctl start "ceph-mon@$MONITOR_NODE" 2>/dev/null || log_error "Не удалось запустить сервис"
+    sleep 3
+fi
+
+log_info "Ожидание инициализации Monitor (до 90 сек)..."
 sleep 5  # Даём больше времени на инициализацию
 
-max_attempts=30
+max_attempts=45
 attempt=0
 mon_ready=0
 
 while [[ $attempt -lt $max_attempts ]]; do
-    # Проверка с timeout 3 сек
-    if timeout 3 ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" &>/dev/null; then
-        log_info "Monitor готов! Статус кластера:"
+    # Проверка статуса сервиса
+    if ! systemctl is-active --quiet "ceph-mon@$MONITOR_NODE"; then
+        log_warn "Сервис ceph-mon не активен! Попытка перезапуска..."
+        systemctl restart "ceph-mon@$MONITOR_NODE" 2>/dev/null || true
+        sleep 3
+        ((attempt++))
+        continue
+    fi
+    
+    # Проверка готовности через ceph -s
+    if timeout 5 ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" &>/dev/null; then
+        log_info "✓ Monitor готов! Статус кластера:"
         ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" | tee -a "$LOG_FILE"
         mon_ready=1
         break
     else
-        log_info "Ожидание готовности Monitor... (попытка $((attempt+1))/$max_attempts)"
-        systemctl is-active "ceph-mon@$MONITOR_NODE" >/dev/null 2>&1 || log_warn "Сервис ceph-mon не активен!"
+        log_info "Ожидание готовности Monitor... (попытка $((attempt+1))/$max_attempts, ~$(( (max_attempts-attempt)*2 )) сек осталось)"
         sleep 2
         ((attempt++))
     fi
 done
 
 if [[ $mon_ready -eq 0 ]]; then
-    log_warn "Monitor не полностью готов после $((max_attempts*2)) сек, проверяем логи..."
-    journalctl -u "ceph-mon@$MONITOR_NODE" -n 20 | tee -a "$LOG_FILE" || true
-    log_warn "Продолжаем развёртывание, но Monitor может быть не готов"
+    log_warn "Monitor не полностью готов после ~$((max_attempts*2)) сек"
+    log_warn "Проверяем статус сервиса и логи..."
+    systemctl status "ceph-mon@$MONITOR_NODE" | tee -a "$LOG_FILE" || true
+    journalctl -u "ceph-mon@$MONITOR_NODE" -n 30 | tee -a "$LOG_FILE" || true
+    log_warn "Продолжаем развёртывание, Monitor может быть не полностью инициализирован"
 fi
 
 # Создание MGR (Manager)
 log_info "Инициализация Ceph Manager..."
 MGR_DATA_DIR="/var/lib/ceph/mgr/$CLUSTER_NAME-$MONITOR_NODE"
 mkdir -p "$MGR_DATA_DIR"
-chown -R astraadm:astraadm "$MGR_DATA_DIR"
+chown -R "$CEPH_USER:$CEPH_USER" "$MGR_DATA_DIR"
+chmod -R 755 "$MGR_DATA_DIR"
 
 # Генирирование ключа для Manager
+log_info "Генирирование ключа Manager..."
 ceph auth get-or-create "mgr.$MONITOR_NODE" mon 'allow profile mgr' osd 'allow *' mds 'allow *' \
-    -o "$CLUSTER_DIR/mgr.$MONITOR_NODE.keyring" 2>/dev/null || true
+    -o "$CLUSTER_DIR/ceph.mgr.$MONITOR_NODE.keyring" -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" 2>&1 | tee -a "$LOG_FILE" || true
+
+# Убедимся что файл keyring имеет правильные права
+if [[ -f "$CLUSTER_DIR/ceph.mgr.$MONITOR_NODE.keyring" ]]; then
+    chown "$CEPH_USER:$CEPH_USER" "$CLUSTER_DIR/ceph.mgr.$MONITOR_NODE.keyring"
+    chmod 640 "$CLUSTER_DIR/ceph.mgr.$MONITOR_NODE.keyring"
+fi
 
 # Запуск Manager
+log_info "Запуск Manager сервиса..."
 systemctl enable "ceph-mgr@$MONITOR_NODE"
-systemctl restart "ceph-mgr@$MONITOR_NODE"
-sleep 2
+systemctl start "ceph-mgr@$MONITOR_NODE"
+sleep 3
 
-# Включение модулей Manager
+# Проверка статуса Manager
+if systemctl is-active --quiet "ceph-mgr@$MONITOR_NODE"; then
+    log_info "✓ Manager успешно запущен"
+else
+    log_warn "Manager не активен, проверяем логи..."
+    journalctl -u "ceph-mgr@$MONITOR_NODE" -n 20 | tee -a "$LOG_FILE" || true
+fi
+
+# Включение модулей Manager (если Monitor готов)
 log_info "Включение модулей Manager..."
-ceph mgr module enable prometheus 2>/dev/null || true
-ceph mgr module enable dashboard 2>/dev/null || true
+ceph mgr module enable prometheus 2>/dev/null || log_warn "Не удалось включить prometheus модуль"
+ceph mgr module enable dashboard 2>/dev/null || log_warn "Не удалось включить dashboard модуль"
 
 # Добавление OSD узлов в конфигурацию
 log_info "Подготовка OSD узлов..."
