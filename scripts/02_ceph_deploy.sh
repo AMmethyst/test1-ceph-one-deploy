@@ -146,18 +146,32 @@ sleep 2
 
 # Проверка статуса Monitor
 log_info "Проверка статуса Monitor..."
-max_attempts=10
+log_info "Ожидание инициализации Monitor (до 60 сек)..."
+sleep 5  # Даём больше времени на инициализацию
+
+max_attempts=30
 attempt=0
-until ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" &>/dev/null || [[ $attempt -ge $max_attempts ]]; do
-    log_info "Ожидание готовности Monitor... (попытка $((attempt+1))/$max_attempts)"
-    sleep 2
-    ((attempt++))
+mon_ready=0
+
+while [[ $attempt -lt $max_attempts ]]; do
+    # Проверка с timeout 3 сек
+    if timeout 3 ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" &>/dev/null; then
+        log_info "Monitor готов! Статус кластера:"
+        ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" | tee -a "$LOG_FILE"
+        mon_ready=1
+        break
+    else
+        log_info "Ожидание готовности Monitor... (попытка $((attempt+1))/$max_attempts)"
+        systemctl is-active ceph-mon@astra-monitor1 >/dev/null 2>&1 || log_warn "Сервис ceph-mon не активен!"
+        sleep 2
+        ((attempt++))
+    fi
 done
 
-if ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" &>/dev/null; then
-    ceph -s -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" | tee -a "$LOG_FILE"
-else
-    log_warn "Monitor ещё не полностью готов, продолжаем..."
+if [[ $mon_ready -eq 0 ]]; then
+    log_warn "Monitor не полностью готов после $((max_attempts*2)) сек, проверяем логи..."
+    journalctl -u ceph-mon@astra-monitor1 -n 20 | tee -a "$LOG_FILE" || true
+    log_warn "Продолжаем развёртывание, но Monitor может быть не готов"
 fi
 
 # Создание MGR (Manager)
