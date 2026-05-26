@@ -132,17 +132,55 @@ fi
 MON_DATA_DIR="/var/lib/ceph/mon/$CLUSTER_NAME-astra-monitor1"
 if [[ ! -d "$MON_DATA_DIR" ]]; then
     mkdir -p "$MON_DATA_DIR"
-    ceph-mon --mkfs -i astra-monitor1 --monmap "$MON_MAP_FILE" \
-        --keyring "$MON_KEYRING" --fsid "$FSID" 2>/dev/null || true
+    log_info "Инициализация данных монитора..."
+    
+    # Выполняем инициализацию с выводом ошибок
+    if ceph-mon --mkfs -i astra-monitor1 --monmap "$MON_MAP_FILE" \
+        --keyring "$MON_KEYRING" --fsid "$FSID"; then
+        log_info "Данные монитора инициализированы успешно"
+    else
+        log_error "Ошибка при инициализации монитора! Проверьте конфиг и логи."
+    fi
+    
     chown -R astraadm:astraadm "$MON_DATA_DIR"
-    log_info "Директория монитора инициализирована"
+    chmod -R 755 "$MON_DATA_DIR"
+    log_info "Установлены правильные права доступа на $MON_DATA_DIR"
+fi
+
+# Проверка прав доступа на критических директориях
+log_info "Проверка конфигурации перед запуском Monitor..."
+if [[ ! -f "$CLUSTER_DIR/$CLUSTER_NAME.conf" ]]; then
+    log_error "Конфиг файл не найден: $CLUSTER_DIR/$CLUSTER_NAME.conf"
+fi
+if [[ ! -f "$MON_KEYRING" ]]; then
+    log_error "Keyring файл не найден: $MON_KEYRING"
+fi
+if [[ ! -d "$MON_DATA_DIR" ]]; then
+    log_error "Директория монитора не создана: $MON_DATA_DIR"
 fi
 
 # Включение сервиса Monitor
 log_info "Запуск Ceph Monitor..."
-systemctl enable ceph-mon@astra-monitor1
-systemctl restart ceph-mon@astra-monitor1
-sleep 2
+if ! systemctl enable ceph-mon@astra-monitor1; then
+    log_warn "Не удалось включить ceph-mon@astra-monitor1 в автозагрузку"
+fi
+
+if systemctl restart ceph-mon@astra-monitor1; then
+    log_info "Сервис ceph-mon@astra-monitor1 перезагружен"
+else
+    log_error "Ошибка при перезагрузке ceph-mon@astra-monitor1! Проверьте статус: systemctl status ceph-mon@astra-monitor1"
+fi
+
+sleep 3
+
+# Проверка статуса сервиса
+if systemctl is-active --quiet ceph-mon@astra-monitor1; then
+    log_info "Сервис ceph-mon@astra-monitor1 активен"
+else
+    log_error "Сервис ceph-mon@astra-monitor1 НЕ активен! Вывод журнала:"
+    journalctl -u ceph-mon@astra-monitor1 -n 30 | tee -a "$LOG_FILE" || true
+    log_error "Исправьте проблему и повторите запуск скрипта"
+fi
 
 # Проверка статуса Monitor
 log_info "Проверка статуса Monitor..."
