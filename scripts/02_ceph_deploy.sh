@@ -397,38 +397,53 @@ log_info "Поиск systemd unit файла для ceph-mon..."
 if [[ -f "/usr/lib/systemd/system/ceph-mon@.service" ]]; then
     UNIT_FILE="/usr/lib/systemd/system/ceph-mon@.service"
     log_info "Unit файл: $UNIT_FILE"
-    log_info "Содержимое unit файла:"
-    cat "$UNIT_FILE" | tee -a "$LOG_FILE"
+    log_info "Содержимое unit файла (первые 50 строк):"
+    head -50 "$UNIT_FILE" | tee -a "$LOG_FILE"
     
     # Проверка пользователя в unit файле
     UNIT_USER=$(grep "^User=" "$UNIT_FILE" | head -1 | cut -d= -f2)
-    if [[ -z "$UNIT_USER" ]]; then
-        log_warn "User не указан в unit файле, используется default (root)"
-        UNIT_USER="root"
-    fi
-    log_info "Unit файл настроен на запуск от пользователя: $UNIT_USER"
+    UNIT_GROUP=$(grep "^Group=" "$UNIT_FILE" | head -1 | cut -d= -f2)
     
-    # Проверка существует ли пользователь
-    if ! id "$UNIT_USER" &>/dev/null && [[ "$UNIT_USER" != "root" ]]; then
-        log_error "✗ КРИТИЧЕСКАЯ ОШИБКА: Пользователь $UNIT_USER НЕ существует!"
-        log_error "Требуется исправить unit файл или создать пользователя"
-        
-        # Попытка исправления - переписать unit файл
-        log_info "Попытка автоматического исправления unit файла..."
-        
-        # Создание временной копии
-        cp "$UNIT_FILE" "$UNIT_FILE.backup"
-        log_info "Резервная копия сохранена: $UNIT_FILE.backup"
-        
-        # Замена пользователя на astraadm
-        sed -i "s/^User=.*/User=$CEPH_USER/" "$UNIT_FILE"
-        sed -i "s/^Group=.*/Group=$CEPH_USER/" "$UNIT_FILE"
-        
-        log_info "Unit файл обновлён с пользователем: $CEPH_USER"
-        log_info "Новое содержимое:"
-        cat "$UNIT_FILE" | tee -a "$LOG_FILE"
+    if [[ -z "$UNIT_USER" ]]; then
+        log_warn "User не указан в unit файле, будет установлен: $CEPH_USER"
+        NEEDS_FIX=1
+    elif [[ "$UNIT_USER" == "root" ]] || [[ "$UNIT_USER" != "$CEPH_USER" ]]; then
+        log_warn "User в unit файле: $UNIT_USER (нужно: $CEPH_USER), требуется исправление"
+        NEEDS_FIX=1
     else
-        log_info "✓ Пользователь $UNIT_USER существует"
+        log_info "✓ User в unit файле уже установлен: $UNIT_USER"
+        NEEDS_FIX=0
+    fi
+    
+    # Исправление unit файла если нужно
+    if [[ $NEEDS_FIX -eq 1 ]]; then
+        log_info "Исправление unit файла для использования $CEPH_USER..."
+        
+        # Создание резервной копии
+        cp "$UNIT_FILE" "$UNIT_FILE.backup"
+        log_info "✓ Резервная копия сохранена: $UNIT_FILE.backup"
+        
+        # Добавление/замена User и Group
+        if grep -q "^User=" "$UNIT_FILE"; then
+            sed -i "s/^User=.*/User=$CEPH_USER/" "$UNIT_FILE"
+        else
+            # Добавляем User перед [Install] или в конец [Service]
+            if grep -q "^\[Service\]" "$UNIT_FILE"; then
+                sed -i "/^\[Service\]/a User=$CEPH_USER" "$UNIT_FILE"
+            fi
+        fi
+        
+        if grep -q "^Group=" "$UNIT_FILE"; then
+            sed -i "s/^Group=.*/Group=$CEPH_USER/" "$UNIT_FILE"
+        else
+            if grep -q "^User=$CEPH_USER" "$UNIT_FILE"; then
+                sed -i "/^User=$CEPH_USER/a Group=$CEPH_USER" "$UNIT_FILE"
+            fi
+        fi
+        
+        log_info "✓ Unit файл обновлён"
+        log_info "Новое содержимое (User и Group):"
+        grep -E "^(User|Group)" "$UNIT_FILE" | tee -a "$LOG_FILE"
     fi
 else
     log_warn "Unit файл не найден в /usr/lib/systemd/system/"
@@ -436,18 +451,42 @@ else
     if [[ -f "/etc/systemd/system/ceph-mon@.service" ]]; then
         UNIT_FILE="/etc/systemd/system/ceph-mon@.service"
         log_info "Unit файл: $UNIT_FILE"
-        cat "$UNIT_FILE" | tee -a "$LOG_FILE"
+        head -50 "$UNIT_FILE" | tee -a "$LOG_FILE"
+        
+        # Аналогичное исправление для /etc/systemd
+        UNIT_USER=$(grep "^User=" "$UNIT_FILE" | head -1 | cut -d= -f2)
+        if [[ -z "$UNIT_USER" ]] || [[ "$UNIT_USER" == "root" ]]; then
+            log_warn "Исправление unit файла в /etc/systemd..."
+            cp "$UNIT_FILE" "$UNIT_FILE.backup"
+            
+            if grep -q "^User=" "$UNIT_FILE"; then
+                sed -i "s/^User=.*/User=$CEPH_USER/" "$UNIT_FILE"
+            else
+                sed -i "/^\[Service\]/a User=$CEPH_USER" "$UNIT_FILE"
+            fi
+            
+            if grep -q "^Group=" "$UNIT_FILE"; then
+                sed -i "s/^Group=.*/Group=$CEPH_USER/" "$UNIT_FILE"
+            else
+                sed -i "/^User=$CEPH_USER/a Group=$CEPH_USER" "$UNIT_FILE"
+            fi
+            log_info "✓ Unit файл в /etc/systemd обновлён"
+        fi
+    else
+        log_error "Unit файл не найден в обоих местах!"
     fi
 fi
 
 systemctl daemon-reload
+log_info "✓ Systemd reload выполнен"
+
 if ! systemctl enable "ceph-mon@$MONITOR_NODE"; then
     log_warn "Не удалось включить ceph-mon@$MONITOR_NODE в автозагрузку"
 fi
 
-log_info "Запуск сервиса..."
+log_info "Запуск сервиса от пользователя: $CEPH_USER"
 if systemctl start "ceph-mon@$MONITOR_NODE"; then
-    log_info "Команда systemctl start выполнена"
+    log_info "✓ Команда systemctl start выполнена"
 else
     log_warn "Команда systemctl start вернула ошибку"
 fi
