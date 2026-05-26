@@ -224,15 +224,71 @@ fi
 
 # Убеждаемся в правильных правах
 log_info "Установка правильных прав доступа..."
-chown -R astraadm:astraadm "$MON_DATA_DIR"
-chmod -R 755 "$MON_DATA_DIR"
-log_info "Проверены права доступа на $MON_DATA_DIR"
+log_info "Выполнение: chown -R astraadm:astraadm $MON_DATA_DIR"
+if chown -R astraadm:astraadm "$MON_DATA_DIR"; then
+    log_info "✓ chown выполнен успешно"
+else
+    log_error "✗ Ошибка при chown!"
+fi
+
+log_info "Выполнение: chmod -R 755 $MON_DATA_DIR"
+if chmod -R 755 "$MON_DATA_DIR"; then
+    log_info "✓ chmod выполнен успешно"
+else
+    log_error "✗ Ошибка при chmod!"
+fi
+
+# Проверяем что права действительно изменились
+log_info "Статус прав доступа после установки:"
+ls -la "$MON_DATA_DIR" 2>&1 | tee -a "$LOG_FILE" || true
+
+# Убеждаемся что все файлы имеют правильного владельца
+BAD_PERMS=$(find "$MON_DATA_DIR" ! -user astraadm 2>/dev/null | wc -l)
+if [[ $BAD_PERMS -gt 0 ]]; then
+    log_error "✗ Обнаружено $BAD_PERMS файлов с неправильным владельцем!"
+    find "$MON_DATA_DIR" ! -user astraadm 2>/dev/null | tee -a "$LOG_FILE"
+    log_error "Пытаемся исправить с -R флагом..."
+    chown -R astraadm:astraadm "$MON_DATA_DIR" || log_error "Повторная попытка chown не удалась"
+else
+    log_info "✓ Все файлы имеют владельца astraadm"
+fi
+
+# Проверка конфиг файлов
+log_info "Проверка конфиг файлов:"
+log_info "Содержимое ceph.conf (первые 30 строк):"
+head -30 "$CLUSTER_DIR/$CLUSTER_NAME.conf" | tee -a "$LOG_FILE" || log_error "Ошибка при чтении ceph.conf"
+
+log_info "Проверка монmap:"
+monmaptool --print "$MON_MAP_FILE" 2>&1 | tee -a "$LOG_FILE" || log_error "Ошибка при чтении монmap"
 
 # Проверка прав доступа на критических директориях
 log_info "Проверка конфигурации перед запуском Monitor..."
 
+# Проверка прав на файлах в /etc/ceph
+log_info "Статус файлов в $CLUSTER_DIR:"
+ls -la "$CLUSTER_DIR"/ 2>&1 | tee -a "$LOG_FILE" || true
+
+# Убеждаемся что конфиг доступен
+if [[ -f "$CLUSTER_DIR/$CLUSTER_NAME.conf" ]]; then
+    chmod 644 "$CLUSTER_DIR/$CLUSTER_NAME.conf"
+    log_info "Права на конфиге установлены: 644"
+else
+    log_error "Конфиг не найден: $CLUSTER_DIR/$CLUSTER_NAME.conf"
+fi
+
+# Убеждаемся что монmap доступен
+if [[ -f "$MON_MAP_FILE" ]]; then
+    chmod 644 "$MON_MAP_FILE"
+    log_info "Права на монmap установлены: 644"
+else
+    log_error "Монmap не найден: $MON_MAP_FILE"
+fi
+
 # Проверка прав на директориях
 log_info "Проверка прав доступа..."
+log_info "Содержимое /var/lib/ceph:"
+find /var/lib/ceph -type f -o -type d | head -30 | tee -a "$LOG_FILE"
+
 if [[ ! -w "$MON_DATA_DIR" ]]; then
     log_warn "Директория $MON_DATA_DIR недоступна для записи, исправляем..."
     chmod -R 777 "$MON_DATA_DIR"
@@ -259,9 +315,20 @@ fi
 # Тестовый запуск ceph-mon для диагностики
 log_info "Диагностический запуск ceph-mon..."
 LOG_OUTPUT=$(mktemp)
-timeout 5 /usr/bin/ceph-mon -i "$MONITOR_NODE" -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" --debug-mon 5 >"$LOG_OUTPUT" 2>&1 || true
+log_info "Запуск: /usr/bin/ceph-mon -i \"$MONITOR_NODE\" -c \"$CLUSTER_DIR/$CLUSTER_NAME.conf\" --debug-mon 5"
+if timeout 5 /usr/bin/ceph-mon -i "$MONITOR_NODE" -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" --debug-mon 5 >"$LOG_OUTPUT" 2>&1; then
+    log_info "Диагностический запуск завершился успешно"
+else
+    EXIT_CODE=$?
+    log_info "Диагностический запуск завершился с кодом: $EXIT_CODE (может быть нормально)"
+fi
+
 log_info "Вывод диагностического запуска:"
-cat "$LOG_OUTPUT" | tee -a "$LOG_FILE" | head -50
+if [[ -s "$LOG_OUTPUT" ]]; then
+    cat "$LOG_OUTPUT" | tee -a "$LOG_FILE"
+else
+    log_info "(вывод пуст)"
+fi
 rm -f "$LOG_OUTPUT"
 pkill -f "ceph-mon" || true
 
@@ -290,8 +357,17 @@ if systemctl is-active --quiet "ceph-mon@$MONITOR_NODE"; then
     log_info "✓ Сервис ceph-mon@$MONITOR_NODE активен и работает"
 else
     log_error "✗ Сервис ceph-mon@$MONITOR_NODE НЕ активен!"
+    log_error ""
     log_error "Статус сервиса:"
     systemctl status "ceph-mon@$MONITOR_NODE" | tee -a "$LOG_FILE" || true
+    
+    log_error ""
+    log_error "Полный журнал ошибок (последние 100 строк):"
+    journalctl -u "ceph-mon@$MONITOR_NODE" -n 100 --no-pager | tee -a "$LOG_FILE" || true
+    
+    log_error ""
+    log_error "Попытка вывести ошибки из dmesg:"
+    dmesg | tail -20 | tee -a "$LOG_FILE" || true
     log_error "Последние логи journalctl:"
     journalctl -u "ceph-mon@$MONITOR_NODE" -n 50 | tee -a "$LOG_FILE" || true
     log_error "Попытка получить информацию о сбое процесса..."
