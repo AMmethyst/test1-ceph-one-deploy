@@ -130,22 +130,26 @@ fi
 
 # Создание данных монитора
 MON_DATA_DIR="/var/lib/ceph/mon/$CLUSTER_NAME-astra-monitor1"
-if [[ ! -d "$MON_DATA_DIR" ]]; then
-    mkdir -p "$MON_DATA_DIR"
+mkdir -p "$MON_DATA_DIR"
+
+# Проверяем есть ли инициализированные данные (по наличию keyring файла)
+if [[ ! -f "$MON_DATA_DIR/keyring" ]]; then
     log_info "Инициализация данных монитора..."
     
     # Выполняем инициализацию с выводом ошибок
     if ceph-mon --mkfs -i astra-monitor1 --monmap "$MON_MAP_FILE" \
-        --keyring "$MON_KEYRING" --fsid "$FSID"; then
+        --keyring "$MON_KEYRING" --fsid "$FSID" 2>&1 | tee -a "$LOG_FILE"; then
         log_info "Данные монитора инициализированы успешно"
     else
         log_error "Ошибка при инициализации монитора! Проверьте конфиг и логи."
     fi
-    
-    chown -R astraadm:astraadm "$MON_DATA_DIR"
-    chmod -R 755 "$MON_DATA_DIR"
-    log_info "Установлены правильные права доступа на $MON_DATA_DIR"
+else
+    log_info "Данные монитора уже инициализированы, используем существующие"
 fi
+
+chown -R astraadm:astraadm "$MON_DATA_DIR"
+chmod -R 755 "$MON_DATA_DIR"
+log_info "Проверены права доступа на $MON_DATA_DIR"
 
 # Проверка прав доступа на критических директориях
 log_info "Проверка конфигурации перед запуском Monitor..."
