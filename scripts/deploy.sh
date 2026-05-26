@@ -118,7 +118,7 @@ deploy_nodes() {
     for node in "${COMPUTE_NODES[@]}"; do
         if ssh -o ConnectTimeout=5 "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
             log_info "Подготовка удалённого узла: $node"
-            ssh "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 01_node_prepare.sh '$node'" || \
+            ssh -t "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 01_node_prepare.sh '$node'" || \
             log_warn "Не удалось подготовить узел: $node"
         else
             log_warn "Узел $node недоступен через SSH"
@@ -147,7 +147,7 @@ deploy_ceph() {
             
             if ssh -o ConnectTimeout=5 "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
                 log_info "Добавление OSD на узле $node ($device)..."
-                ssh "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 03_osd_add.sh '$device' '$CLUSTER_NAME'" || \
+                ssh -t "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 03_osd_add.sh '$device' '$CLUSTER_NAME'" || \
                 log_warn "Не удалось добавить OSD на $node"
             fi
         done
