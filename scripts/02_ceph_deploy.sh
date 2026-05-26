@@ -149,6 +149,14 @@ fi
 
 # Проверка прав доступа на критических директориях
 log_info "Проверка конфигурации перед запуском Monitor..."
+
+# Проверка прав на директориях
+log_info "Проверка прав доступа..."
+if [[ ! -w "$MON_DATA_DIR" ]]; then
+    log_warn "Директория $MON_DATA_DIR недоступна для записи, исправляем..."
+    chmod -R 777 "$MON_DATA_DIR"
+fi
+
 if [[ ! -f "$CLUSTER_DIR/$CLUSTER_NAME.conf" ]]; then
     log_error "Конфиг файл не найден: $CLUSTER_DIR/$CLUSTER_NAME.conf"
 fi
@@ -159,27 +167,61 @@ if [[ ! -d "$MON_DATA_DIR" ]]; then
     log_error "Директория монитора не создана: $MON_DATA_DIR"
 fi
 
+# Проверка портов
+log_info "Проверка доступности портов..."
+if netstat -tlnp 2>/dev/null | grep -q :6789; then
+    log_warn "Порт 6789 уже используется, пытаемся остановить старый процесс..."
+    pkill -f "ceph-mon" || true
+    sleep 2
+fi
+
+# Тестовый запуск ceph-mon для диагностики
+log_info "Диагностический запуск ceph-mon..."
+LOG_OUTPUT=$(mktemp)
+timeout 5 /usr/bin/ceph-mon -i astra-monitor1 -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" --debug-mon 5 >"$LOG_OUTPUT" 2>&1 || true
+log_info "Вывод диагностического запуска:"
+cat "$LOG_OUTPUT" | tee -a "$LOG_FILE" | head -50
+rm -f "$LOG_OUTPUT"
+pkill -f "ceph-mon" || true
+
+sleep 2
+
 # Включение сервиса Monitor
-log_info "Запуск Ceph Monitor..."
+log_info "Запуск Ceph Monitor через systemd..."
+systemctl daemon-reload
 if ! systemctl enable ceph-mon@astra-monitor1; then
     log_warn "Не удалось включить ceph-mon@astra-monitor1 в автозагрузку"
 fi
 
-if systemctl restart ceph-mon@astra-monitor1; then
-    log_info "Сервис ceph-mon@astra-monitor1 перезагружен"
+systemctl stop ceph-mon@astra-monitor1 2>/dev/null || true
+sleep 1
+
+if systemctl start ceph-mon@astra-monitor1; then
+    log_info "Сервис ceph-mon@astra-monitor1 запущен"
 else
-    log_error "Ошибка при перезагрузке ceph-mon@astra-monitor1! Проверьте статус: systemctl status ceph-mon@astra-monitor1"
+    log_warn "Команда systemctl start вернула ошибку"
 fi
 
-sleep 3
+sleep 5
 
 # Проверка статуса сервиса
 if systemctl is-active --quiet ceph-mon@astra-monitor1; then
-    log_info "Сервис ceph-mon@astra-monitor1 активен"
+    log_info "✓ Сервис ceph-mon@astra-monitor1 активен и работает"
 else
-    log_error "Сервис ceph-mon@astra-monitor1 НЕ активен! Вывод журнала:"
-    journalctl -u ceph-mon@astra-monitor1 -n 30 | tee -a "$LOG_FILE" || true
+    log_error "✗ Сервис ceph-mon@astra-monitor1 НЕ активен!"
+    log_error "Статус сервиса:"
+    systemctl status ceph-mon@astra-monitor1 | tee -a "$LOG_FILE" || true
+    log_error "Последние логи journalctl:"
+    journalctl -u ceph-mon@astra-monitor1 -n 50 | tee -a "$LOG_FILE" || true
+    log_error "Попытка получить информацию о сбое процесса..."
+    ps aux | grep -i ceph | grep -v grep | tee -a "$LOG_FILE" || true
+    log_error ""
+    log_error "ДИАГНОСТИКА:"
+    log_error "1. Проверьте права доступа: ls -la $MON_DATA_DIR"
+    log_error "2. Проверьте конфиг: ceph-conf -c $CLUSTER_DIR/$CLUSTER_NAME.conf --show-config"
+    log_error "3. Запустите вручную: /usr/bin/ceph-mon -i astra-monitor1 -c $CLUSTER_DIR/$CLUSTER_NAME.conf --debug-mon 5"
     log_error "Исправьте проблему и повторите запуск скрипта"
+    exit 1
 fi
 
 # Проверка статуса Monitor
