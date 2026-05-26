@@ -132,21 +132,56 @@ fi
 MON_DATA_DIR="/var/lib/ceph/mon/$CLUSTER_NAME-astra-monitor1"
 mkdir -p "$MON_DATA_DIR"
 
-# Проверяем есть ли инициализированные данные (по наличию keyring файла)
-if [[ ! -f "$MON_DATA_DIR/keyring" ]]; then
-    log_info "Инициализация данных монитора..."
+log_info "Статус директории монитора до инициализации:"
+ls -la "$MON_DATA_DIR" 2>&1 | tee -a "$LOG_FILE" || true
+echo "---" | tee -a "$LOG_FILE"
+
+# Проверяем есть ли файлы в директории (любые, не только keyring)
+EXISTING_FILES=$(find "$MON_DATA_DIR" -type f 2>/dev/null | wc -l)
+
+if [[ $EXISTING_FILES -eq 0 ]]; then
+    log_info "Директория пуста, выполняем инициализацию монитора..."
     
-    # Выполняем инициализацию с выводом ошибок
+    # Проверяем входные файлы перед mkfs
+    log_info "Проверка необходимых файлов:"
+    log_info "  - Монmap: $MON_MAP_FILE $(test -f "$MON_MAP_FILE" && echo '✓' || echo '✗')"
+    log_info "  - Keyring: $MON_KEYRING $(test -f "$MON_KEYRING" && echo '✓' || echo '✗')"
+    log_info "  - Config: $CLUSTER_DIR/$CLUSTER_NAME.conf $(test -f "$CLUSTER_DIR/$CLUSTER_NAME.conf" && echo '✓' || echo '✗')"
+    
+    # Выполняем инициализацию с детальным логированием
+    log_info "Выполнение: ceph-mon --mkfs -i astra-monitor1 --monmap $MON_MAP_FILE --keyring $MON_KEYRING --fsid $FSID"
+    
+    MK_OUTPUT=$(mktemp)
     if ceph-mon --mkfs -i astra-monitor1 --monmap "$MON_MAP_FILE" \
-        --keyring "$MON_KEYRING" --fsid "$FSID" 2>&1 | tee -a "$LOG_FILE"; then
-        log_info "Данные монитора инициализированы успешно"
+        --keyring "$MON_KEYRING" --fsid "$FSID" >"$MK_OUTPUT" 2>&1; then
+        log_info "mkfs завершился успешно"
+        cat "$MK_OUTPUT" | tee -a "$LOG_FILE"
     else
-        log_error "Ошибка при инициализации монитора! Проверьте конфиг и логи."
+        log_warn "mkfs завершился с кодом ошибки, но продолжаем:"
+        cat "$MK_OUTPUT" | tee -a "$LOG_FILE"
+    fi
+    rm -f "$MK_OUTPUT"
+    
+    log_info "Статус директории монитора после инициализации:"
+    ls -la "$MON_DATA_DIR" 2>&1 | tee -a "$LOG_FILE" || true
+    
+    # Проверяем что получилось
+    FILES_AFTER=$(find "$MON_DATA_DIR" -type f 2>/dev/null | wc -l)
+    if [[ $FILES_AFTER -gt 0 ]]; then
+        log_info "✓ Инициализация успешна, создано файлов: $FILES_AFTER"
+    else
+        log_error "✗ После mkfs директория всё ещё пуста! Это критическая ошибка."
+        log_error "Проверьте права доступа и конфигурацию Ceph"
+        ls -la /var/lib/ceph/ | tee -a "$LOG_FILE"
+        exit 1
     fi
 else
-    log_info "Данные монитора уже инициализированы, используем существующие"
+    log_info "✓ Директория уже содержит файлы ($EXISTING_FILES), используем существующие данные"
+    ls -la "$MON_DATA_DIR" 2>&1 | tee -a "$LOG_FILE" || true
 fi
 
+# Убеждаемся в правильных правах
+log_info "Установка правильных прав доступа..."
 chown -R astraadm:astraadm "$MON_DATA_DIR"
 chmod -R 755 "$MON_DATA_DIR"
 log_info "Проверены права доступа на $MON_DATA_DIR"
