@@ -330,9 +330,24 @@ else
     log_info "(вывод пуст)"
 fi
 rm -f "$LOG_OUTPUT"
-pkill -f "ceph-mon" || true
 
+# Корректное завершение процесса
+log_info "Корректное завершение ceph-mon процессов..."
+systemctl stop "ceph-mon@$MONITOR_NODE" 2>/dev/null || true
 sleep 2
+
+# Принудительное завершение оставшихся процессов
+if pgrep -f "ceph-mon" >/dev/null 2>&1; then
+    log_warn "ceph-mon процессы ещё активны, принудительное завершение..."
+    pkill -9 -f "ceph-mon" || true
+    sleep 2
+fi
+
+# Удаление lockfile если он остался
+if [[ -f "/var/lib/ceph/mon/$CLUSTER_NAME-$MONITOR_NODE/lock" ]]; then
+    log_info "Удаление lock file..."
+    rm -f "/var/lib/ceph/mon/$CLUSTER_NAME-$MONITOR_NODE/lock"
+fi
 
 # Включение сервиса Monitor
 log_info "Запуск Ceph Monitor через systemd..."
@@ -341,18 +356,28 @@ if ! systemctl enable "ceph-mon@$MONITOR_NODE"; then
     log_warn "Не удалось включить ceph-mon@$MONITOR_NODE в автозагрузку"
 fi
 
-systemctl stop "ceph-mon@$MONITOR_NODE" 2>/dev/null || true
-sleep 1
-
+log_info "Запуск сервиса..."
 if systemctl start "ceph-mon@$MONITOR_NODE"; then
-    log_info "Сервис ceph-mon@$MONITOR_NODE запущен"
+    log_info "Команда systemctl start выполнена"
 else
     log_warn "Команда systemctl start вернула ошибку"
 fi
 
-sleep 5
+# Ожидание инициализации сервиса
+log_info "Ожидание инициализации сервиса (до 30 сек)..."
+sleep 3
+for i in {1..10}; do
+    if systemctl is-active --quiet "ceph-mon@$MONITOR_NODE"; then
+        log_info "✓ Сервис активен на попытке $i"
+        break
+    fi
+    if [[ $i -lt 10 ]]; then
+        log_info "Попытка $i: сервис ещё не активен, ожидание..."
+        sleep 3
+    fi
+done
 
-# Проверка статуса сервиса
+# Проверка статуса сервиса (финальная)
 if systemctl is-active --quiet "ceph-mon@$MONITOR_NODE"; then
     log_info "✓ Сервис ceph-mon@$MONITOR_NODE активен и работает"
 else
@@ -362,21 +387,23 @@ else
     systemctl status "ceph-mon@$MONITOR_NODE" | tee -a "$LOG_FILE" || true
     
     log_error ""
-    log_error "Полный журнал ошибок (последние 100 строк):"
-    journalctl -u "ceph-mon@$MONITOR_NODE" -n 100 --no-pager | tee -a "$LOG_FILE" || true
+    log_error "Последние логи журнала (50 строк):"
+    journalctl -u "ceph-mon@$MONITOR_NODE" -n 50 --no-pager | tee -a "$LOG_FILE" || true
     
     log_error ""
-    log_error "Попытка вывести ошибки из dmesg:"
-    dmesg | tail -20 | tee -a "$LOG_FILE" || true
-    log_error "Последние логи journalctl:"
-    journalctl -u "ceph-mon@$MONITOR_NODE" -n 50 | tee -a "$LOG_FILE" || true
-    log_error "Попытка получить информацию о сбое процесса..."
+    log_error "Процессы ceph:"
     ps aux | grep -i ceph | grep -v grep | tee -a "$LOG_FILE" || true
+    
     log_error ""
-    log_error "ДИАГНОСТИКА:"
-    log_error "1. Проверьте права доступа: ls -la $MON_DATA_DIR"
-    log_error "2. Проверьте конфиг: ceph-conf -c $CLUSTER_DIR/$CLUSTER_NAME.conf --show-config"
-    log_error "3. Запустите вручную: /usr/bin/ceph-mon -i $MONITOR_NODE -c $CLUSTER_DIR/$CLUSTER_NAME.conf --debug-mon 5"
+    log_error "Содержимое директории монитора:"
+    ls -laR "$MON_DATA_DIR" | tee -a "$LOG_FILE" || true
+    
+    log_error ""
+    log_error "РЕКОМЕНДУЕМЫЕ ДЕЙСТВИЯ:"
+    log_error "1. Проверьте логи: journalctl -u ceph-mon@$MONITOR_NODE -f"
+    log_error "2. Попробуйте запустить вручную: /usr/bin/ceph-mon -i $MONITOR_NODE -c $CLUSTER_DIR/$CLUSTER_NAME.conf --debug-mon 10"
+    log_error "3. Проверьте права: ls -la $MON_DATA_DIR"
+    log_error "4. Проверьте порт 6789: netstat -tlnp | grep 6789"
     log_error "Исправьте проблему и повторите запуск скрипта"
     exit 1
 fi
