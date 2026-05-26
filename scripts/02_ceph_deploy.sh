@@ -34,9 +34,19 @@ CLUSTER_NAME="${1:-ceph}"
 CLUSTER_DIR="/etc/ceph"
 FSID=$(uuidgen)
 
+# Использование переменных из конфига, если доступны, иначе значения по умолчанию
+MONITOR_NODE="${MONITOR_NODE:-astra-monitor1}"
+MONITOR_IP="${MONITOR_IP:-192.168.1.100}"
+PUBLIC_NETWORK="${PUBLIC_NETWORK:-192.168.1.0/24}"
+CLUSTER_NETWORK="${CLUSTER_NETWORK:-192.168.2.0/24}"
+COMPUTE_IPS="${COMPUTE_IPS:-192.168.1.101 192.168.1.102 192.168.1.103}"
+
 log_info "===== РАЗВЁРТЫВАНИЕ КЛАСТЕРА CEPH ====="
 log_info "Имя кластера: $CLUSTER_NAME"
 log_info "FSID: $FSID"
+log_info "Monitor узел: $MONITOR_NODE ($MONITOR_IP)"
+log_info "Public сеть: $PUBLIC_NETWORK"
+log_info "Cluster сеть: $CLUSTER_NETWORK"
 log_info "Директория конфигурации: $CLUSTER_DIR"
 
 # Создание конфигурационного файла Ceph
@@ -45,17 +55,17 @@ log_info "Создание конфигурационного файла $CLUSTE
 cat > "$CLUSTER_DIR/$CLUSTER_NAME.conf" <<EOF
 [global]
 fsid = $FSID
-mon_initial_members = astra-monitor1
-mon_host = 192.168.1.100
+mon_initial_members = $MONITOR_NODE
+mon_host = $MONITOR_IP
 auth_cluster_required = cephx
 auth_service_required = cephx
 auth_client_required = cephx
 
 # Public network for client communication
-public_network = 192.168.1.0/24
+public_network = $PUBLIC_NETWORK
 
 # Cluster network for OSD-OSD communication (more secure, requires separate network)
-cluster_network = 192.168.2.0/24
+cluster_network = $CLUSTER_NETWORK
 
 # Общие параметры производительности
 mon_max_pg_per_osd = 200
@@ -122,14 +132,14 @@ ceph-authtool --create-keyring "$MON_KEYRING" --gen-key -n mon. --cap mon 'allow
 MON_MAP_FILE="$CLUSTER_DIR/$CLUSTER_NAME.monmap"
 if [[ ! -f "$MON_MAP_FILE" ]]; then
     monmaptool --create --clobber \
-        --add astra-monitor1 192.168.1.100 \
+        --add "$MONITOR_NODE" "$MONITOR_IP" \
         --fsid "$FSID" \
         "$MON_MAP_FILE"
     log_info "Mon map создана"
 fi
 
 # Создание данных монитора
-MON_DATA_DIR="/var/lib/ceph/mon/$CLUSTER_NAME-astra-monitor1"
+MON_DATA_DIR="/var/lib/ceph/mon/$CLUSTER_NAME-$MONITOR_NODE"
 mkdir -p "$MON_DATA_DIR"
 
 log_info "Статус директории монитора до инициализации:"
@@ -149,10 +159,10 @@ if [[ $EXISTING_FILES -eq 0 ]]; then
     log_info "  - Config: $CLUSTER_DIR/$CLUSTER_NAME.conf $(test -f "$CLUSTER_DIR/$CLUSTER_NAME.conf" && echo '✓' || echo '✗')"
     
     # Выполняем инициализацию с детальным логированием
-    log_info "Выполнение: ceph-mon --mkfs -i astra-monitor1 --monmap $MON_MAP_FILE --keyring $MON_KEYRING --fsid $FSID"
+    log_info "Выполнение: ceph-mon --mkfs -i $MONITOR_NODE --monmap $MON_MAP_FILE --keyring $MON_KEYRING --fsid $FSID"
     
     MK_OUTPUT=$(mktemp)
-    if ceph-mon --mkfs -i astra-monitor1 --monmap "$MON_MAP_FILE" \
+    if ceph-mon --mkfs -i "$MONITOR_NODE" --monmap "$MON_MAP_FILE" \
         --keyring "$MON_KEYRING" --fsid "$FSID" >"$MK_OUTPUT" 2>&1; then
         log_info "mkfs завершился успешно"
         cat "$MK_OUTPUT" | tee -a "$LOG_FILE"
@@ -217,7 +227,7 @@ fi
 # Тестовый запуск ceph-mon для диагностики
 log_info "Диагностический запуск ceph-mon..."
 LOG_OUTPUT=$(mktemp)
-timeout 5 /usr/bin/ceph-mon -i astra-monitor1 -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" --debug-mon 5 >"$LOG_OUTPUT" 2>&1 || true
+timeout 5 /usr/bin/ceph-mon -i "$MONITOR_NODE" -c "$CLUSTER_DIR/$CLUSTER_NAME.conf" --debug-mon 5 >"$LOG_OUTPUT" 2>&1 || true
 log_info "Вывод диагностического запуска:"
 cat "$LOG_OUTPUT" | tee -a "$LOG_FILE" | head -50
 rm -f "$LOG_OUTPUT"
@@ -228,15 +238,15 @@ sleep 2
 # Включение сервиса Monitor
 log_info "Запуск Ceph Monitor через systemd..."
 systemctl daemon-reload
-if ! systemctl enable ceph-mon@astra-monitor1; then
-    log_warn "Не удалось включить ceph-mon@astra-monitor1 в автозагрузку"
+if ! systemctl enable "ceph-mon@$MONITOR_NODE"; then
+    log_warn "Не удалось включить ceph-mon@$MONITOR_NODE в автозагрузку"
 fi
 
-systemctl stop ceph-mon@astra-monitor1 2>/dev/null || true
+systemctl stop "ceph-mon@$MONITOR_NODE" 2>/dev/null || true
 sleep 1
 
-if systemctl start ceph-mon@astra-monitor1; then
-    log_info "Сервис ceph-mon@astra-monitor1 запущен"
+if systemctl start "ceph-mon@$MONITOR_NODE"; then
+    log_info "Сервис ceph-mon@$MONITOR_NODE запущен"
 else
     log_warn "Команда systemctl start вернула ошибку"
 fi
@@ -244,21 +254,21 @@ fi
 sleep 5
 
 # Проверка статуса сервиса
-if systemctl is-active --quiet ceph-mon@astra-monitor1; then
-    log_info "✓ Сервис ceph-mon@astra-monitor1 активен и работает"
+if systemctl is-active --quiet "ceph-mon@$MONITOR_NODE"; then
+    log_info "✓ Сервис ceph-mon@$MONITOR_NODE активен и работает"
 else
-    log_error "✗ Сервис ceph-mon@astra-monitor1 НЕ активен!"
+    log_error "✗ Сервис ceph-mon@$MONITOR_NODE НЕ активен!"
     log_error "Статус сервиса:"
-    systemctl status ceph-mon@astra-monitor1 | tee -a "$LOG_FILE" || true
+    systemctl status "ceph-mon@$MONITOR_NODE" | tee -a "$LOG_FILE" || true
     log_error "Последние логи journalctl:"
-    journalctl -u ceph-mon@astra-monitor1 -n 50 | tee -a "$LOG_FILE" || true
+    journalctl -u "ceph-mon@$MONITOR_NODE" -n 50 | tee -a "$LOG_FILE" || true
     log_error "Попытка получить информацию о сбое процесса..."
     ps aux | grep -i ceph | grep -v grep | tee -a "$LOG_FILE" || true
     log_error ""
     log_error "ДИАГНОСТИКА:"
     log_error "1. Проверьте права доступа: ls -la $MON_DATA_DIR"
     log_error "2. Проверьте конфиг: ceph-conf -c $CLUSTER_DIR/$CLUSTER_NAME.conf --show-config"
-    log_error "3. Запустите вручную: /usr/bin/ceph-mon -i astra-monitor1 -c $CLUSTER_DIR/$CLUSTER_NAME.conf --debug-mon 5"
+    log_error "3. Запустите вручную: /usr/bin/ceph-mon -i $MONITOR_NODE -c $CLUSTER_DIR/$CLUSTER_NAME.conf --debug-mon 5"
     log_error "Исправьте проблему и повторите запуск скрипта"
     exit 1
 fi
@@ -281,7 +291,7 @@ while [[ $attempt -lt $max_attempts ]]; do
         break
     else
         log_info "Ожидание готовности Monitor... (попытка $((attempt+1))/$max_attempts)"
-        systemctl is-active ceph-mon@astra-monitor1 >/dev/null 2>&1 || log_warn "Сервис ceph-mon не активен!"
+        systemctl is-active "ceph-mon@$MONITOR_NODE" >/dev/null 2>&1 || log_warn "Сервис ceph-mon не активен!"
         sleep 2
         ((attempt++))
     fi
@@ -289,23 +299,23 @@ done
 
 if [[ $mon_ready -eq 0 ]]; then
     log_warn "Monitor не полностью готов после $((max_attempts*2)) сек, проверяем логи..."
-    journalctl -u ceph-mon@astra-monitor1 -n 20 | tee -a "$LOG_FILE" || true
+    journalctl -u "ceph-mon@$MONITOR_NODE" -n 20 | tee -a "$LOG_FILE" || true
     log_warn "Продолжаем развёртывание, но Monitor может быть не готов"
 fi
 
 # Создание MGR (Manager)
 log_info "Инициализация Ceph Manager..."
-MGR_DATA_DIR="/var/lib/ceph/mgr/$CLUSTER_NAME-astra-monitor1"
+MGR_DATA_DIR="/var/lib/ceph/mgr/$CLUSTER_NAME-$MONITOR_NODE"
 mkdir -p "$MGR_DATA_DIR"
 chown -R astraadm:astraadm "$MGR_DATA_DIR"
 
 # Генирирование ключа для Manager
-ceph auth get-or-create mgr.astra-monitor1 mon 'allow profile mgr' osd 'allow *' mds 'allow *' \
-    -o "$CLUSTER_DIR/mgr.astra-monitor1.keyring" 2>/dev/null || true
+ceph auth get-or-create "mgr.$MONITOR_NODE" mon 'allow profile mgr' osd 'allow *' mds 'allow *' \
+    -o "$CLUSTER_DIR/mgr.$MONITOR_NODE.keyring" 2>/dev/null || true
 
 # Запуск Manager
-systemctl enable ceph-mgr@astra-monitor1
-systemctl restart ceph-mgr@astra-monitor1
+systemctl enable "ceph-mgr@$MONITOR_NODE"
+systemctl restart "ceph-mgr@$MONITOR_NODE"
 sleep 2
 
 # Включение модулей Manager

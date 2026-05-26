@@ -131,6 +131,11 @@ deploy_ceph() {
     log_section "РАЗВЁРТЫВАНИЕ КEPH КЛАСТЕРА"
     
     log_info "Инициализация Ceph кластера: $CLUSTER_NAME"
+    # Передаём переменные конфига через окружение
+    MONITOR_NODE="$MONITOR_NODE" \
+    MONITOR_IP="$MONITOR_IP" \
+    PUBLIC_NETWORK="$PUBLIC_NETWORK" \
+    CLUSTER_NETWORK="$CLUSTER_NETWORK" \
     bash "$SCRIPT_DIR/02_ceph_deploy.sh" "$CLUSTER_NAME"
     
     # Проверка добавления OSD дисков
