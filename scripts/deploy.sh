@@ -187,6 +187,7 @@ deploy_nodes() {
             log_error "✗ Узел $node недоступен через SSH"
         fi
     done
+}
 
 # Функция для развёртывания Ceph
 deploy_ceph() {
