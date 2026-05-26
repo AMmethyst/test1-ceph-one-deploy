@@ -48,6 +48,11 @@ log_info "Monitor узел: $MONITOR_NODE ($MONITOR_IP)"
 log_info "Public сеть: $PUBLIC_NETWORK"
 log_info "Cluster сеть: $CLUSTER_NETWORK"
 log_info "Директория конфигурации: $CLUSTER_DIR"
+log_info "Переменные окружения:"
+log_info "  MONITOR_NODE=${MONITOR_NODE}"
+log_info "  MONITOR_IP=${MONITOR_IP}"
+log_info "  PUBLIC_NETWORK=${PUBLIC_NETWORK}"
+log_info "  CLUSTER_NETWORK=${CLUSTER_NETWORK}"
 
 # Создание конфигурационного файла Ceph
 log_info "Создание конфигурационного файла $CLUSTER_NAME.conf..."
@@ -130,12 +135,39 @@ MON_KEYRING="$CLUSTER_DIR/$CLUSTER_NAME.mon.keyring"
 ceph-authtool --create-keyring "$MON_KEYRING" --gen-key -n mon. --cap mon 'allow *' 2>/dev/null || true
 
 MON_MAP_FILE="$CLUSTER_DIR/$CLUSTER_NAME.monmap"
+
+# Проверяем нужно ли пересоздать монmap
+# Пересоздаём если файла нет или IP адрес изменился
+RECREATE_MONMAP=0
 if [[ ! -f "$MON_MAP_FILE" ]]; then
+    log_info "Monmap файл не найден, будет создан новый"
+    RECREATE_MONMAP=1
+else
+    # Проверяем содержит ли монmap текущий IP адрес
+    if ! grep -q "$MONITOR_IP" "$MON_MAP_FILE" 2>/dev/null; then
+        log_warn "IP адрес в монmap не совпадает с текущим ($MONITOR_IP), пересоздаём"
+        RECREATE_MONMAP=1
+    fi
+fi
+
+if [[ $RECREATE_MONMAP -eq 1 ]]; then
+    log_info "Создание новой монmap с параметрами: $MONITOR_NODE ($MONITOR_IP)"
+    # Удаляем старую если есть
+    rm -f "$MON_MAP_FILE"
     monmaptool --create --clobber \
         --add "$MONITOR_NODE" "$MONITOR_IP" \
         --fsid "$FSID" \
         "$MON_MAP_FILE"
-    log_info "Mon map создана"
+    log_info "Новая Mon map создана"
+    
+    # Если IP изменился, нужно очистить старые данные монитора
+    log_info "Очистка старых данных монитора перед переинициализацией..."
+    systemctl stop "ceph-mon@$MONITOR_NODE" 2>/dev/null || true
+    sleep 2
+    rm -rf "/var/lib/ceph/mon/$CLUSTER_NAME-$MONITOR_NODE"
+    log_info "Данные монитора очищены"
+else
+    log_info "Используется существующая Mon map"
 fi
 
 # Создание данных монитора

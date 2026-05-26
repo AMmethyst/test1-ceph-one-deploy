@@ -131,11 +131,17 @@ deploy_ceph() {
     log_section "РАЗВЁРТЫВАНИЕ КEPH КЛАСТЕРА"
     
     log_info "Инициализация Ceph кластера: $CLUSTER_NAME"
-    # Передаём переменные конфига через окружение
-    MONITOR_NODE="$MONITOR_NODE" \
-    MONITOR_IP="$MONITOR_IP" \
-    PUBLIC_NETWORK="$PUBLIC_NETWORK" \
-    CLUSTER_NETWORK="$CLUSTER_NETWORK" \
+    log_info "Параметры конфигурации:"
+    log_info "  Monitor: $MONITOR_NODE ($MONITOR_IP)"
+    log_info "  Public: $PUBLIC_NETWORK, Cluster: $CLUSTER_NETWORK"
+    
+    # Экспортируем переменные перед вызовом скрипта
+    export MONITOR_NODE
+    export MONITOR_IP
+    export PUBLIC_NETWORK
+    export CLUSTER_NETWORK
+    export CLUSTER_NAME
+    
     bash "$SCRIPT_DIR/02_ceph_deploy.sh" "$CLUSTER_NAME"
     
     # Проверка добавления OSD дисков
