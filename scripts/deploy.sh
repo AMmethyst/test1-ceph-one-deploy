@@ -89,11 +89,44 @@ check_hosts() {
     
     for host in "$MONITOR_NODE" "${COMPUTE_NODES[@]}"; do
         if ping -c 1 "$host" &>/dev/null; then
-            log_info "✓ Хост доступен: $host"
+            log_info "✓ Хост доступен (ping): $host"
         else
-            log_warn "✗ Хост недоступен: $host (может потребоваться SSH)"
+            log_warn "✗ Хост не отвечает на ping: $host"
         fi
     done
+    
+    log_info "Проверка SSH подключения..."
+    SSH_FAILED=0
+    for host in "${COMPUTE_NODES[@]}"; do
+        if [[ "$host" != "$(hostname)" ]]; then
+            if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${SSH_USER}@${host}" "echo 'SSH OK'" &>/dev/null; then
+                log_info "✓ SSH доступ к $host: OK (пользователь: $SSH_USER)"
+            else
+                log_error "✗ SSH недоступен к $host"
+                SSH_FAILED=1
+            fi
+        fi
+    done
+    
+    if [[ $SSH_FAILED -eq 1 ]]; then
+        log_error ""
+        log_error "ВАЖНО! Требуется SSH подключение к узлам!"
+        log_error ""
+        log_error "На каждом узле выполните:"
+        log_error "1. Установите SSH сервер: sudo apt-get install openssh-server"
+        log_error "2. На monitor узле генерируйте ключ: ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa"
+        log_error "3. Добавьте публичный ключ на узлы:"
+        log_error "   for host in ${COMPUTE_NODES[@]}; do"
+        log_error "     ssh-copy-id -i ~/.ssh/id_rsa.pub ${SSH_USER}@\$host"
+        log_error "   done"
+        log_error "4. Настройте sudoers без пароля:"
+        log_error "   ssh ${SSH_USER}@HOST 'echo \"${SSH_USER} ALL=(ALL) NOPASSWD: ALL\" | sudo tee /etc/sudoers.d/${SSH_USER}'"
+        log_error ""
+        log_error "Или запустите подготовку вручную на каждом узле:"
+        log_error "   sudo bash 00_prerequisites.sh"
+        log_error "   sudo bash 01_node_prepare.sh NODENAME NODEIP"
+        log_error ""
+    fi
 }
 
 # Функция для подготовки окружения
@@ -110,21 +143,50 @@ deploy_prerequisites() {
 deploy_nodes() {
     log_section "ПОДГОТОВКА УЗЛОВ КЛАСТЕРА"
     
+    log_info "Создание директории на удалённых узлах: /tmp/ceph-deploy"
+    for node in "${COMPUTE_NODES[@]}"; do
+        if [[ "$node" != "$(hostname)" ]]; then
+            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${SSH_USER}@${node}" "mkdir -p /tmp/ceph-deploy" 2>/dev/null || true
+        fi
+    done
+    
     # Подготовка текущего узла
     log_info "Подготовка текущего узла ($(hostname))..."
+    bash "$SCRIPT_DIR/00_prerequisites.sh"
     bash "$SCRIPT_DIR/01_node_prepare.sh" "$(hostname)" "$(hostname -I | awk '{print $1}')"
     
     # Подготовка других узлов (если доступны через SSH)
     for node in "${COMPUTE_NODES[@]}"; do
-        if ssh -o ConnectTimeout=5 "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
-            log_info "Подготовка удалённого узла: $node"
-            ssh -t "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 01_node_prepare.sh '$node'" || \
-            log_warn "Не удалось подготовить узел: $node"
+        log_info "Попытка подключения к узлу: $node"
+        
+        # Проверка доступности
+        if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
+            log_info "✓ Узел $node доступен"
+            log_info "Копирование скриптов на $node..."
+            scp -o ConnectTimeout=5 -o StrictHostKeyChecking=no -r "$SCRIPT_DIR"/*.sh "${SSH_USER}@${node}:/tmp/ceph-deploy/" 2>/dev/null || true
+            
+            # Копирование конфига если есть
+            if [[ -f "$CONFIG_FILE" ]]; then
+                log_info "Копирование конфигурации на $node..."
+                scp -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$CONFIG_FILE" "${SSH_USER}@${node}:/tmp/ceph-deploy/" 2>/dev/null || true
+            fi
+            
+            log_info "Подготовка узла: $node"
+            
+            # Запуск подготовки
+            log_info "Выполнение 00_prerequisites.sh на $node..."
+            ssh -t -o StrictHostKeyChecking=no "${SSH_USER}@${node}" "cd /tmp/ceph-deploy && sudo bash 00_prerequisites.sh" || \
+            log_warn "Ошибка при выполнении prerequisites на $node, продолжаем..."
+            
+            log_info "Выполнение 01_node_prepare.sh на $node..."
+            NODE_IP=$(grep "^[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*.*${node}" /etc/hosts | awk '{print $1}' | head -1)
+            ssh -t -o StrictHostKeyChecking=no "${SSH_USER}@${node}" \
+                "cd /tmp/ceph-deploy && sudo bash 01_node_prepare.sh '$node' '$NODE_IP'" || \
+            log_warn "Ошибка при подготовке узла $node"
         else
-            log_warn "Узел $node недоступен через SSH"
+            log_error "✗ Узел $node недоступен через SSH"
         fi
     done
-}
 
 # Функция для развёртывания Ceph
 deploy_ceph() {
@@ -144,25 +206,42 @@ deploy_ceph() {
     
     bash "$SCRIPT_DIR/02_ceph_deploy.sh" "$CLUSTER_NAME"
     
-    # Проверка добавления OSD дисков
-    log_info "Текущий узел: $(hostname)"
-    if [[ "$(hostname)" == *"node"* ]]; then
-        log_warn "Это node, OSD диски будут добавлены здесь"
-    elif [[ "$(hostname)" == "$MONITOR_NODE" ]]; then
-        log_info "Это монитор-узел, добавление OSD с удалённых узлов..."
-        
-        # Попытка добавления OSD дисков с удалённых узлов
-        for i in "${!COMPUTE_NODES[@]}"; do
-            node="${COMPUTE_NODES[$i]}"
-            device="${OSD_DEVICES[$i]}"
-            
-            if ssh -o ConnectTimeout=5 "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
-                log_info "Добавление OSD на узле $node ($device)..."
-                ssh -t "${SSH_USER}@${node}" "cd $SCRIPT_DIR && sudo bash 03_osd_add.sh '$device' '$CLUSTER_NAME'" || \
-                log_warn "Не удалось добавить OSD на $node"
-            fi
-        done
+    log_info "Ожидание инициализации Monitor (30 сек)..."
+    sleep 30
+    
+    # Проверка статуса Monitor
+    if ceph -s 2>/dev/null; then
+        log_info "✓ Monitor инициализирован и работает"
+    else
+        log_warn "⚠ Monitor может быть ещё не полностью готов, но продолжаем"
     fi
+    
+    # Добавление OSD дисков на ВСЕ узлы (включая текущий)
+    log_section "ДОБАВЛЕНИЕ OSD ДИСКОВ"
+    
+    for i in "${!COMPUTE_NODES[@]}"; do
+        node="${COMPUTE_NODES[$i]}"
+        device="${OSD_DEVICES[$i]}"
+        
+        log_info "Добавление OSD на узле $node: $device"
+        
+        if [[ "$node" == "$(hostname)" ]] || [[ "$node" == "$MONITOR_NODE" ]]; then
+            # Локальное выполнение
+            log_info "Локальное добавление OSD..."
+            bash "$SCRIPT_DIR/03_osd_add.sh" "$device" "$CLUSTER_NAME" || \
+            log_warn "Ошибка при добавлении OSD на локальном узле $node"
+        else
+            # Удалённое выполнение через SSH
+            if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "${SSH_USER}@${node}" "echo 'OK'" &>/dev/null; then
+                log_info "Удалённое добавление OSD через SSH на $node..."
+                ssh -t -o StrictHostKeyChecking=no "${SSH_USER}@${node}" \
+                    "cd /tmp/ceph-deploy && sudo bash 03_osd_add.sh '$device' '$CLUSTER_NAME'" || \
+                log_warn "Ошибка при добавлении OSD на $node"
+            else
+                log_error "✗ Узел $node недоступен через SSH, пропускаем OSD"
+            fi
+        fi
+    done
     
     log_info "Ceph развёртывание завершено"
 }
