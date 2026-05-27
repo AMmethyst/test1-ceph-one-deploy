@@ -35,8 +35,8 @@ CLUSTER_DIR="/etc/ceph"
 FSID=$(uuidgen)
 
 # Использование переменных из конфига, если доступны, иначе значения по умолчанию
-MONITOR_NODE="${MONITOR_NODE:-astra-monitor1}"
-MONITOR_IP="${MONITOR_IP:-192.168.1.100}"
+MONITOR_NODE="${MONITOR_NODE:-astra-front}"
+MONITOR_IP="${MONITOR_IP:-172.30.120.21}"
 PUBLIC_NETWORK="${PUBLIC_NETWORK:-192.168.1.0/24}"
 CLUSTER_NETWORK="${CLUSTER_NETWORK:-192.168.2.0/24}"
 COMPUTE_IPS="${COMPUTE_IPS:-192.168.1.101 192.168.1.102 192.168.1.103}"

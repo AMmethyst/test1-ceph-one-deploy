@@ -58,7 +58,7 @@ else
     
     # Параметры по умолчанию
     CLUSTER_NAME="ceph"
-    MONITOR_NODE="astra-monitor1"
+    MONITOR_NODE="astra-front"
     COMPUTE_NODES=("astra-node1" "astra-node2" "astra-node3")
     OSD_DEVICES=("/dev/sdb" "/dev/sdc" "/dev/sdd")
     DEB_PATH="./deb"
