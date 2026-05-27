@@ -49,33 +49,23 @@ apt-get update
 apt-get upgrade -y 2>/dev/null || \
 log_warn "apt-get upgrade отключена в системе (Astra Linux). Это нормально для уровня защиты 'Орёл'. Продолжаем без полного обновления."
 
-# Установка базовых утилит
+# Установка базовых утилит (минимальный набор)
 log_info "Установка базовых утилит..."
 apt-get install -y \
     curl \
     wget \
-    git \
-    vim \
     net-tools \
-    htop \
-    sysstat \
-    openssh-server \
-    openssh-client \
-    sudo \
     chrony \
     parted \
-    gdisk \
     lvm2 \
     xfsprogs \
-    python3 \
-    python3-pip \
-    jq || true
+    python3 || true
 
-# Установка опциональных утилит (могут быть недоступны в некоторых репозиториях)
-log_info "Установка опциональных утилит для мониторинга..."
-for pkg in iotop-c iotop blktrace fio; do
-    apt-get install -y "$pkg" 2>/dev/null && { log_info "Пакет $pkg установлен"; break; } || true
-done
+# Установка опциональных утилит для мониторинга (очень опционально)
+log_info "Пакеты мониторинга пропущены (iotop, blktrace и т.д. устанавливаются по требованию)"
+# for pkg in iotop-c iotop blktrace fio; do
+#     apt-get install -y "$pkg" 2>/dev/null && { log_info "Пакет $pkg установлен"; break; } || true
+# done
 
 # Конфигурация NTP/Chrony для синхронизации времени
 log_info "Конфигурация синхронизации времени (chrony)..."
@@ -131,9 +121,17 @@ else
     log_info "Пользователь ceph уже существует"
 fi
 
+<<<<<<< HEAD
 # SSH конфигурация - не изменяем sshd_config автоматически
 # чтобы избежать диалога выбора версии конфигурации
 log_info "SSH конфигурация оставлена без изменений (если требуется, установите вручную)"
+=======
+# Конфигурация SSH для бесконтактного доступа
+log_info "Проверка SSH конфигурации..."
+# NOTE: sshd_config не трогаем - это может вызвать интерактивный диалог системы
+log_info "SSH конфигурация оставлена без изменений (используется стандартная Astra Linux)"
+# systemctl restart ssh (отключено чтобы избежать интерактивных диалогов)
+>>>>>>> 85773636f58d1ceb4e1cdd9572c41bd2343f4a86
 
 # Загрузка модулей ядра
 log_info "Проверка необходимых модулей ядра..."
@@ -149,12 +147,9 @@ apt-get update
 log_info "Установка пакетов Ceph..."
 apt-get install -y ceph-common ceph-mon ceph-osd ceph-mgr ceph-mds
 
-# Установка поддерживающих инструментов
-log_info "Установка поддерживающих инструментов..."
-apt-get install -y \
-    ceph-deploy \
-    radosgw \
-    ceph-test
+# Установка поддерживающих инструментов (только необходимые)
+log_info "Поддерживающие инструменты пропущены (можно установить вручную при необходимости)"
+# Убрано: ceph-deploy (deprecated), radosgw (по требованию), ceph-test (для тестирования)
 
 # Создание директорий для Ceph
 log_info "Создание директорий Ceph..."
