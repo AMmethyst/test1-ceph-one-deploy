@@ -62,7 +62,7 @@ else
     COMPUTE_NODES=("astra-node1" "astra-node2" "astra-node3")
     OSD_DEVICES=("/dev/sdb" "/dev/sdc" "/dev/sdd")
     DEB_PATH="./deb"
-    SSH_USER="$(whoami)"  # Используем текущего пользователя
+    SSH_USER="astraadm"  # Используем пользователя astraadm
     ENABLE_OPENNEBULA=true
     ENABLE_PROMETHEUS=true
     ENABLE_GRAFANA=true

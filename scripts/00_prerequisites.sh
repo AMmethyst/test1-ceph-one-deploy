@@ -131,12 +131,9 @@ else
     log_info "Пользователь ceph уже существует"
 fi
 
-# Конфигурация SSH для бесконтактного доступа (если требуется)
-log_info "Проверка SSH конфигурации..."
-if ! grep -q "^PermitRootLogin" /etc/ssh/sshd_config; then
-    echo "PermitRootLogin without-password" >> /etc/ssh/sshd_config
-fi
-systemctl restart ssh
+# SSH конфигурация - не изменяем sshd_config автоматически
+# чтобы избежать диалога выбора версии конфигурации
+log_info "SSH конфигурация оставлена без изменений (если требуется, установите вручную)"
 
 # Загрузка модулей ядра
 log_info "Проверка необходимых модулей ядра..."
