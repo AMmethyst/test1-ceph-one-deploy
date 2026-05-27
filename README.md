@@ -734,5 +734,5 @@ curl http://localhost:9090/api/v1/query?query=up
 ---
 
 **Версия:** 1.0  
-**Дата обновления:** 2024  
+**Дата обновления:** 2026  
 **Совместимость:** Astra Linux 1.7 (Debian 10), kernel 5.15+
