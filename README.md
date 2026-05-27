@@ -28,7 +28,7 @@
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌──────────────────┐   ┌──────────────────┐                │
-│  │ astra-monitor1   │   │  astra-node1-3   │                │
+│  │  astra-front     │   │  astra-node1-3   │                │
 │  │  (Admin node)    │   │  (OSD Storage)   │                │
 │  ├──────────────────┤   ├──────────────────┤                │
 │  │ • Ceph Monitor   │   │ • Ceph OSD x3    │                │
@@ -47,8 +47,8 @@
 
 ### Сетевые интерфейсы
 
-- **Public Network (192.168.1.0/24)**: Клиентский трафик, управление
-- **Cluster Network (192.168.2.0/24)**: Внутренний трафик OSD-OSD (рекомендуется)
+- **Public Network (172.30.120.0/24)**: Клиентский трафик, управление
+- **Cluster Network (172.30.120.0/24)**: Внутренний трафик OSD-OSD (по умолчанию одна сеть)
 
 ## ✅ Требования
 
@@ -123,10 +123,34 @@ cp .deployment.conf.example .deployment.conf
 nano .deployment.conf
 ```
 
+### 1.1 Настройка SSH доступа (важно!)
+
+⚠️ **Скрипты используют пользователя `astraadm` (не root!) для SSH подключений**
+
+На каждом узле выполните:
+
+```bash
+# 1. На узле astra-front (где запускаются скрипты)
+ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa  # Если ещё не сгенерирован
+
+# 2. На каждом узле (astra-front, astra-node1-3)
+# Убедитесь что пользователь astraadm имеет sudo без пароля
+echo "astraadm ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/astraadm
+
+# 3. На узле astra-front: скопировать ключи на все узлы
+for node in astra-front astra-node1 astra-node2 astra-node3; do
+  ssh-copy-id -i ~/.ssh/id_rsa.pub astraadm@$node
+done
+
+# 4. Проверить доступ
+ssh astraadm@astra-node1 "sudo ceph -s"  # Должно работать без пароля
+```
+
 ### 2. Развёртывание (все компоненты)
 
 ```bash
-# На узле astra-monitor1 (или с SSH доступом к узлам)
+# На узле astra-front (или с SSH доступом к узлам)
+# Убедитесь, что есть SSH доступ от astraadm на все узлы (см. выше)
 sudo ./scripts/deploy.sh all .deployment.conf
 ```
 
@@ -212,7 +236,7 @@ sudo ./scripts/00_prerequisites.sh
 **Использование:**
 ```bash
 sudo ./scripts/01_node_prepare.sh [node_name] [node_ip]
-sudo ./scripts/01_node_prepare.sh astra-node1 192.168.1.101
+sudo ./scripts/01_node_prepare.sh astra-node1 172.30.120.22
 ```
 
 ### 02_ceph_deploy.sh
@@ -330,12 +354,15 @@ sudo ./scripts/health_check.sh
 ```bash
 # Информация о кластере
 CLUSTER_NAME="ceph"
-MONITOR_NODE="astra-monitor1"
+MONITOR_NODE="astra-front"
 COMPUTE_NODES=("astra-node1" "astra-node2" "astra-node3")
 
+# SSH пользователь (без root!)
+SSH_USER="astraadm"
+
 # Сетевая конфигурация
-PUBLIC_NETWORK="192.168.1.0/24"
-CLUSTER_NETWORK="192.168.2.0/24"
+PUBLIC_NETWORK="172.30.120.0/24"
+CLUSTER_NETWORK="172.30.120.0/24"
 
 # Хранилище
 OSD_DEVICES=("/dev/sdb" "/dev/sdc" "/dev/sdd")
@@ -354,10 +381,10 @@ ENABLE_GRAFANA=true
 ```ini
 [global]
 fsid = <generated-uuid>
-mon_initial_members = astra-monitor1
-mon_host = 192.168.1.100
-public_network = 192.168.1.0/24
-cluster_network = 192.168.2.0/24
+mon_initial_members = astra-front
+mon_host = 172.30.120.21
+public_network = 172.30.120.0/24
+cluster_network = 172.30.120.0/24
 
 [osd]
 osd_pool_default_size = 3
@@ -395,22 +422,25 @@ sudo ./scripts/deploy.sh opennebula
 sudo ./scripts/00_prerequisites.sh
 
 # 2. На каждом узле: подготовка конкретного узла
-sudo ./scripts/01_node_prepare.sh astra-monitor1 192.168.1.100
+sudo ./scripts/01_node_prepare.sh astra-front 172.30.120.21
+sudo ./scripts/01_node_prepare.sh astra-node1 172.30.120.22
+sudo ./scripts/01_node_prepare.sh astra-node2 172.30.120.23
+sudo ./scripts/01_node_prepare.sh astra-node3 172.30.120.24
 
-# 3. На astra-monitor1: инициализация Ceph
+# 3. На astra-front: инициализация Ceph
 sudo ./scripts/02_ceph_deploy.sh ceph
 
 # 4. На каждом compute узле: добавление OSD дисков
 sudo ./scripts/03_osd_add.sh /dev/sdb ceph
 sudo ./scripts/03_osd_add.sh /dev/sdc ceph
 
-# 5. На astra-monitor1: установка OpenNebula
+# 5. На astra-front: установка OpenNebula
 sudo ./scripts/04_opennebula_install.sh ./deb
 
-# 6. На astra-monitor1: установка Prometheus
+# 6. На astra-front: установка Prometheus
 sudo ./scripts/05_prometheus_install.sh
 
-# 7. На astra-monitor1: установка Grafana
+# 7. На astra-front: установка Grafana
 sudo ./scripts/06_grafana_install.sh
 ```
 
@@ -463,7 +493,7 @@ oneimage list
 
 ### Prometheus
 
-**URL:** `http://astra-monitor1:9090`
+**URL:** `http://astra-front:9090`
 
 - Graph - Исторические графики
 - Alerts - Активные оповещения
@@ -471,7 +501,7 @@ oneimage list
 
 ### Grafana
 
-**URL:** `http://astra-monitor1:3000`
+**URL:** `http://astra-front:3000`
 
 Учётные данные по умолчанию: `admin` / `changeme` (нужно изменить!)
 
@@ -516,10 +546,10 @@ ceph -w
 **3. Monitor недоступен:**
 ```bash
 # Перезагрузить Monitor
-sudo systemctl restart ceph-mon@astra-monitor1
+sudo systemctl restart ceph-mon@astra-front
 
 # Проверить журналы
-sudo journalctl -u ceph-mon@astra-monitor1 -f
+sudo journalctl -u ceph-mon@astra-front -f
 ```
 
 **4. Отсутствует кластер network:**
@@ -528,8 +558,8 @@ sudo journalctl -u ceph-mon@astra-monitor1 -f
 ip addr show
 ip route show
 
-# Пинг между узлами
-ping -I 192.168.2.100 192.168.2.101
+# Пинг между узлами (если используется отдельная сеть для кластера)
+ping -I 172.30.120.21 172.30.120.22
 ```
 
 ### Просмотр логов
@@ -623,9 +653,9 @@ sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 # 3. Включить аудит
 sudo auditctl -w /etc/ceph/ -p wa -k ceph_config_changes
 
-# 4. Настроить firewall правила для ограничения доступа
+# 2. Настроить firewall для ограничения доступа
 sudo ufw default deny incoming
-sudo ufw allow from 192.168.1.0/24 to any port 6789
+sudo ufw allow from 172.30.120.0/24 to any port 6789
 ```
 
 ## 🛠️ Решение проблем
@@ -643,11 +673,16 @@ ls -la scripts/
 ### Нет доступа к удалённым узлам
 
 ```bash
-# Проверить SSH
-ssh -v astra-node1 "echo OK"
+# Проверить SSH от пользователя astraadm
+ssh -v astraadm@astra-node1 "echo OK"
 
-# Установить публичные ключи
-ssh-copy-id root@astra-node1
+# Накопировать публичные ключи на все узлы
+for node in astra-node1 astra-node2 astra-node3; do
+  ssh-copy-id -i ~/.ssh/id_rsa.pub astraadm@$node
+done
+
+# На каждом узле: настройте sudo без пароля
+echo "astraadm ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/astraadm
 ```
 
 ### Диск не найден для OSD
@@ -666,8 +701,9 @@ sudo umount /dev/sdb*
 ### Prometheus не видит метрики
 
 ```bash
-# Проверить доступность Node Exporter
+# Проверить Node Exporter на нодах
 curl http://astra-node1:9100/metrics
+curl http://astra-node2:9100/metrics
 
 # Проверить конфигурацию Prometheus
 cat /etc/prometheus/prometheus.yml
