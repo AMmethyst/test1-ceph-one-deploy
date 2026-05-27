@@ -170,8 +170,8 @@ sudo su - oneadmin -c "onevm list"
 ## 📁 Структура проекта
 
 ```
-test1-ceph-one-deploy/
-├── scripts/                          # Основные скрипты развёртывания
+ceph-one-deploy/
+├── scripts/                         # Основные скрипты развёртывания
 │   ├── deploy.sh                    # Главный orchestration скрипт
 │   ├── 00_prerequisites.sh          # Подготовка окружения
 │   ├── 01_node_prepare.sh           # Подготовка узлов
@@ -185,26 +185,17 @@ test1-ceph-one-deploy/
 │   ├── start_services.sh            # Запуск всех сервисов
 │   └── stop_services.sh             # Остановка сервисов
 │
-├── config/                           # Конфигурационные файлы
-│   ├── ceph.conf                    # (генерируется автоматически)
-│   └── monitoring.conf              # Конфигурация мониторинга
-│
-├── monitoring/                       # Файлы мониторинга
-│   ├── prometheus/
-│   │   ├── prometheus.yml           # Конфигурация Prometheus
-│   │   └── rules/                   # Правила алертинга
-│   ├── grafana/
-│   │   ├── dashboards/             # Готовые дашборды
-│   │   └── provisioning/           # Автоматическая конфигурация
-│   └── alerts/
-│       ├── rules.yml               # Правила проверки
-│       └── templates/              # Шаблоны уведомлений
+├── dev/                             # Файлы мониторинга
+│   ├── check_project.sh             # Правила алертинга
+│   ├── fix_apt_upgrade.sh           # Автоматическая конфигурация
+│   └── verify_astra_linux.sh        # Шаблоны уведомлений
 │
 ├── deb/                             # OpenNebula .deb файлы
-│   └── *.deb                       # (размещить сюда)
+│   └── *.deb                        # (размещить сюда)
 │
-├── .deployment.conf                # Основной конфиг развёртывания
-├── .deployment.conf.example        # Пример конфигурации
+├── .deployment.conf                 # Конфигурационные файлы
+│── deployment-lab.conf              # Конфигурационные файлы
+│── deployment-prod.conf             # Конфигурационные файлы
 └── README.md                        # Этот файл
 ```
 
