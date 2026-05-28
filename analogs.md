@@ -1,7 +1,6 @@
 | Критерий | Ваша система (Ceph + AIC + Astra Linux) | cephadm | OpenNebula Packages | Ansible Playbooks |
 |---|---|---|---|---|
 | Astra Linux SE поддержка | ✔ | △  | △  | △  |
-| Offline / Гибридное развёртывание | ✔ | ✖ | △ | △ |
 | Установка через локальные `.deb` | ✔ | ✖ | ✔ | △ |
 | Автоматизация развёртывания | ✔ Bash orchestration | ✔ Встроенная | ✖ Частичная | ✔ |
 | Системы мониторинга | ✔ Prometheus + Grafana | ✔ Встроенный | ✖ Требует настройки | △ |
