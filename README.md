@@ -190,7 +190,7 @@ ceph-one-deploy/
 │   ├── fix_apt_upgrade.sh           # Автоматическая конфигурация
 │   └── verify_astra_linux.sh        # Шаблоны уведомлений
 │
-├── deb/                             # OpenNebula .deb файлы
+├── deb/                             # .deb файлы
 │   └── *.deb                        # (размещить сюда)
 │
 ├── .deployment.conf                 # Конфигурационные файлы
